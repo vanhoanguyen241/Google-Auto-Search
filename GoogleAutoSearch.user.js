@@ -244,9 +244,18 @@
         } else {
             // === KHÔNG TÌM THẤY -> CHUYỂN TRANG ===
             if (currentPage >= MAX_PAGES) {
-                startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang.`;
-                startBtn.disabled = false;
+                startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang. Đang reset...`;
+                
+                // 1. Xóa toàn bộ State để reset 2 ô input ở lần tải trang sau
                 GM_setValue('as_isRunning', false);
+                GM_setValue('as_keyword', '');
+                GM_setValue('as_targetUrl', '');
+                GM_setValue('as_currentPage', 1);
+                
+                // 2. Quay về trang chủ Google (origin sẽ tự động lấy google.com hoặc google.com.vn)
+                setTimeout(() => {
+                    window.location.href = window.location.origin;
+                }, 1000);
                 return;
             }
             
@@ -261,10 +270,17 @@
                     GM_setValue('as_currentPage', currentPage + 1);
                     nextBtn.click();
                 } else {
-                    // Nếu không tìm thấy nút next, có thể là đã hết kết quả
-                    startBtn.innerText = "Hết kết quả từ Google.";
-                    startBtn.disabled = false;
+                    // Nếu hết kết quả từ Google trước khi chạm đến MAX_PAGES -> Cũng tiến hành Reset
+                    startBtn.innerText = "Hết kết quả từ Google. Đang reset...";
+                    
                     GM_setValue('as_isRunning', false);
+                    GM_setValue('as_keyword', '');
+                    GM_setValue('as_targetUrl', '');
+                    GM_setValue('as_currentPage', 1);
+                    
+                    setTimeout(() => {
+                        window.location.href = window.location.origin;
+                    }, 1500);
                 }
             });
         }
