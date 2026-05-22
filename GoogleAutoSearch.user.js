@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.1
-// @description  Floating UI, Pre-flight Check, Human-Typing & Auto-Scraping/Clicking
+// @version      1.2
+// @description  Floating UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -17,11 +17,11 @@
 (function() {
     'use strict';
 
-    // NGĂN CHẶN CHẠY TRONG IFRAME (ReCaptcha, Google Maps embedded, v.v...)
+    // NGĂN CHẶN CHẠY TRONG IFRAME (ReCaptcha, Google Maps)
     if (window.top !== window.self) return;
 
     /* ==========================================
-       PHẦN 1: FOUNDATION UI (GIAO DIỆN & KÉO THẢ)
+       PHẦN 1: FOUNDATION UI (GIAO DIỆN)
        ========================================== */
     const style = document.createElement('style');
     style.textContent = `
@@ -46,7 +46,7 @@
     panel.innerHTML = `
         <h4>Auto Search</h4>
         <input type="text" id="as-keyword" placeholder="Nhập từ khóa...">
-        <input type="text" id="as-url" placeholder="Nhập URL đích (VD: target.com)">
+        <input type="text" id="as-url" placeholder="Nhập URL / Tên web che link">
         <button id="as-start-btn">Bắt đầu tìm</button>
         <button id="as-close-btn" class="close-btn">Thu nhỏ / Hủy</button>
     `;
@@ -107,7 +107,7 @@
     });
 
     /* ==========================================
-       PHẦN 2: PRE-FLIGHT & HUMAN-TYPING
+       PHẦN 2: PRE-FLIGHT (SOFT-PING) & TYPING
        ========================================== */
     const startBtn = document.getElementById('as-start-btn');
     const keywordInput = document.getElementById('as-keyword');
@@ -141,11 +141,21 @@
                     startBtn.innerText = "Đang gõ từ khóa...";
                     simulateHumanTyping(keyword, targetUrl);
                 } else {
-                    alert(`Trang sập hoặc lỗi: ${res.status}`); resetBtn();
+                    if (confirm(`Trang web trả về lỗi ${res.status}. Có thể web đã sập hoặc chặn truy cập trực tiếp.\nBạn có muốn BỎ QUA và vẫn tiếp tục tìm kiếm không?`)) {
+                        simulateHumanTyping(keyword, targetUrl);
+                    } else resetBtn();
                 }
             },
-            onerror: () => { alert("Lỗi kết nối tới URL đích."); resetBtn(); },
-            ontimeout: () => { alert("Timeout khi kiểm tra URL."); resetBtn(); }
+            onerror: () => { 
+                if (confirm(`Lỗi mạng: Không thể ping tới địa chỉ này.\nĐây có thể là từ khóa (web che link) chứ không phải URL hợp lệ.\nBạn có muốn tiếp tục tìm kiếm chuỗi này không?`)) {
+                    simulateHumanTyping(keyword, targetUrl);
+                } else resetBtn();
+            },
+            ontimeout: () => { 
+                if (confirm(`Ping bị Timeout. Bạn có muốn bỏ qua và tiếp tục tìm kiếm không?`)) {
+                    simulateHumanTyping(keyword, targetUrl);
+                } else resetBtn();
+            }
         });
     });
 
@@ -170,7 +180,7 @@
     function triggerSearch(keyword, targetUrl, searchBox) {
         GM_setValue('as_isRunning', true);
         GM_setValue('as_keyword', keyword);
-        GM_setValue('as_targetUrl', targetUrl);
+        GM_setValue('as_targetUrl', targetUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''));
         GM_setValue('as_currentPage', 1);
 
         startBtn.innerText = "Đang submit...";
@@ -199,41 +209,44 @@
     }
 
     function executeSearchCore() {
-        const rawTargetUrl = GM_getValue('as_targetUrl', '');
+        const rawTargetUrl = GM_getValue('as_targetUrl', '').toLowerCase();
         const currentPage = GM_getValue('as_currentPage', 1);
         const MAX_PAGES = 10; 
-
-        // Phân tích URL đích do người dùng nhập để lấy Hostname chuẩn xác
-        let targetObj;
-        try {
-            targetObj = new URL(rawTargetUrl);
-        } catch(e) {
-            targetObj = new URL('https://' + rawTargetUrl);
-        }
-        const targetHost = targetObj.hostname.replace(/^www\./, '');
-        const targetPath = targetObj.pathname === '/' ? '' : targetObj.pathname;
 
         const links = Array.from(document.querySelectorAll('#search a[href^="http"], #rso a[href^="http"]'))
             .filter(a => !a.href.includes('google.'));
             
         let foundLink = null;
         for (let a of links) {
+            let isMatch = false;
+
             try {
+                let targetObj = new URL(/^https?:\/\//i.test(rawTargetUrl) ? rawTargetUrl : 'https://' + rawTargetUrl);
+                let targetHost = targetObj.hostname.replace(/^www\./, '');
+                let targetPath = targetObj.pathname === '/' ? '' : targetObj.pathname;
+
                 let linkObj = new URL(a.href);
                 let linkHost = linkObj.hostname.replace(/^www\./, '');
                 let linkPath = linkObj.pathname === '/' ? '' : linkObj.pathname;
 
-                // Kiểm tra Hostname: Phải khớp hoàn toàn HOẶC là subdomain phụ (vd: m.tube.com khớp với tube.com)
-                // Nhờ vậy: youtube.com sẽ KHÔNG khớp với tube.com
-                let isHostMatch = linkHost === targetHost || linkHost.endsWith('.' + targetHost);
-                let isPathMatch = linkPath.startsWith(targetPath);
-
-                if (isHostMatch && isPathMatch) {
-                    foundLink = a;
-                    break;
+                if ((linkHost === targetHost || linkHost.endsWith('.' + targetHost)) && linkPath.startsWith(targetPath)) {
+                    isMatch = true;
                 }
-            } catch(e) {
-                // Bỏ qua các href dị dạng không thể parse bằng new URL()
+            } catch(e) {}
+
+            if (!isMatch) {
+                let textToSearch = a.innerText.toLowerCase() + " " + a.href.toLowerCase();
+                let escapedTarget = rawTargetUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                let regex = new RegExp('(^|[^a-z0-9])' + escapedTarget + '([^a-z0-9]|$)', 'i');
+
+                if (regex.test(textToSearch)) {
+                    isMatch = true;
+                }
+            }
+            
+            if (isMatch) {
+                foundLink = a;
+                break;
             }
         }
         
