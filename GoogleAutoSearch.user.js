@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Google Auto-Search & Scraper (Phase 1)
+// @name         Google Auto-Search & Scraper (Phase 1 - Fixed)
 // @namespace    http://tampermonkey.net/
-// @version      0.1
-// @description  Floating UI for Google Search Automation
+// @version      0.1.1
+// @description  Floating UI cho Google Search Automation (Đã fix lỗi click)
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -14,7 +14,7 @@
 (function() {
     'use strict';
 
-    // 1. Bơm CSS cục bộ (Tránh xung đột với CSS của Google)
+    // 1. Bơm CSS cục bộ
     const style = document.createElement('style');
     style.textContent = `
         #auto-search-bubble {
@@ -42,7 +42,7 @@
             bottom: 80px;
             right: 20px;
             width: 300px;
-            max-width: 90vw; /* Responsive cho Mobile */
+            max-width: 90vw;
             background: white;
             border: 1px solid #ccc;
             border-radius: 8px;
@@ -62,7 +62,7 @@
     `;
     document.head.appendChild(style);
 
-    // 2. Tạo các Element HTML
+    // 2. Tạo Element
     const bubble = document.createElement('div');
     bubble.id = 'auto-search-bubble';
     bubble.innerHTML = '🔍';
@@ -79,27 +79,30 @@
     `;
     document.body.appendChild(panel);
 
-    // 3. Logic Kéo Thả (Drag & Drop) đa nền tảng
-    let isDragging = false;
-    let isClick = true; // Dùng để phân biệt giữa click mở panel và kéo thả
+    // Ngăn chặn việc click/kéo thả bên trong panel kích hoạt nhầm ra document
+    panel.addEventListener('mousedown', e => e.stopPropagation());
+    panel.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
+
+    // 3. Logic Kéo Thả (Drag & Drop) Đã Fix
+    let isInteraction = false; // Cờ theo dõi xem thao tác có bắt đầu từ bong bóng không
+    let isClick = true;
     let initialX, initialY;
 
     function dragStart(e) {
+        isInteraction = true; 
         isClick = true;
-        // Lấy tọa độ ban đầu tùy theo loại sự kiện (Touch hoặc Mouse)
+        
         const clientX = e.type === "touchstart" ? e.touches[0].clientX : e.clientX;
         const clientY = e.type === "touchstart" ? e.touches[0].clientY : e.clientY;
         
         initialX = clientX - bubble.getBoundingClientRect().left;
         initialY = clientY - bubble.getBoundingClientRect().top;
-        isDragging = true;
     }
 
     function drag(e) {
-        if (!isDragging) return;
-        isClick = false; // Nếu có di chuyển chuột/tay, đánh dấu là đang kéo (drag), không phải click
+        if (!isInteraction) return; // Nếu không chạm từ bong bóng thì bỏ qua
+        isClick = false; 
         
-        // Ngăn trình duyệt cuộn trang khi đang kéo trên điện thoại
         if(e.type === "touchmove") e.preventDefault(); 
 
         const clientX = e.type === "touchmove" ? e.touches[0].clientX : e.clientX;
@@ -108,7 +111,6 @@
         let currentX = clientX - initialX;
         let currentY = clientY - initialY;
 
-        // Giới hạn để bong bóng không bay ra ngoài màn hình
         const maxX = window.innerWidth - bubble.offsetWidth;
         const maxY = window.innerHeight - bubble.offsetHeight;
         currentX = Math.max(0, Math.min(currentX, maxX));
@@ -120,27 +122,26 @@
         bubble.style.right = "auto";
     }
 
-    function dragEnd() {
-        isDragging = false;
+    function dragEnd(e) {
+        if (!isInteraction) return; // Bỏ qua mọi cú nhả chuột không bắt nguồn từ bong bóng
+        isInteraction = false;
+        
         if (isClick) {
             togglePanel();
         } else {
-            // Cập nhật vị trí của panel đi theo bong bóng sau khi kéo xong
             updatePanelPosition();
         }
     }
 
-    // Gắn sự kiện cho Chuột (PC)
     bubble.addEventListener('mousedown', dragStart);
     document.addEventListener('mousemove', drag);
     document.addEventListener('mouseup', dragEnd);
 
-    // Gắn sự kiện cho Cảm ứng (Mobile) - passive: false để có thể preventDefault()
     bubble.addEventListener('touchstart', dragStart, {passive: false});
     document.addEventListener('touchmove', drag, {passive: false});
     document.addEventListener('touchend', dragEnd);
 
-    // 4. Logic Ẩn/Hiện và Định vị Panel
+    // 4. Logic Ẩn/Hiện
     function updatePanelPosition() {
         if (panel.style.display !== 'flex') return;
         
@@ -148,14 +149,12 @@
         panel.style.bottom = "auto";
         panel.style.right = "auto";
         
-        // Đặt panel phía trên hoặc dưới bong bóng tùy thuộc vào không gian hiển thị
         if (bubbleRect.top > 250) {
             panel.style.top = (bubbleRect.top - panel.offsetHeight - 15) + "px";
         } else {
             panel.style.top = (bubbleRect.bottom + 15) + "px";
         }
         
-        // Đảm bảo panel không bị tràn viền ngang
         panel.style.left = Math.min(
             Math.max(10, bubbleRect.left - (panel.offsetWidth / 2) + 25), 
             window.innerWidth - panel.offsetWidth - 10
@@ -167,11 +166,11 @@
             panel.style.display = 'none';
         } else {
             panel.style.display = 'flex';
-            // Cần một frame nhỏ để trình duyệt tính toán kích thước panel trước khi đặt vị trí
             requestAnimationFrame(updatePanelPosition);
         }
     }
 
+    // Nút thu nhỏ giờ đã hoạt động độc lập và an toàn
     document.getElementById('as-close-btn').addEventListener('click', togglePanel);
 
 })();
