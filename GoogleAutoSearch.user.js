@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Floating UI, Pre-flight Check, Human-Typing & Auto-Scraping/Clicking
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
@@ -16,6 +16,9 @@
 
 (function() {
     'use strict';
+
+    // NGĂN CHẶN CHẠY TRONG IFRAME (ReCaptcha, Google Maps embedded, v.v...)
+    if (window.top !== window.self) return;
 
     /* ==========================================
        PHẦN 1: FOUNDATION UI (GIAO DIỆN & KÉO THẢ)
@@ -98,7 +101,6 @@
     }
     
     document.getElementById('as-close-btn').addEventListener('click', () => {
-        // Nút thu nhỏ giờ kiêm luôn tính năng hủy tiến trình nếu đang chạy dở
         GM_setValue('as_isRunning', false);
         resetBtn();
         togglePanel();
@@ -111,7 +113,6 @@
     const keywordInput = document.getElementById('as-keyword');
     const urlInput = document.getElementById('as-url');
 
-    // Phục hồi giá trị cũ lên panel
     keywordInput.value = GM_getValue('as_keyword', '');
     urlInput.value = GM_getValue('as_targetUrl', '');
 
@@ -169,8 +170,7 @@
     function triggerSearch(keyword, targetUrl, searchBox) {
         GM_setValue('as_isRunning', true);
         GM_setValue('as_keyword', keyword);
-        // Loại bỏ scheme (http/https) và dấu slash cuối để dễ match tương đối
-        GM_setValue('as_targetUrl', targetUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''));
+        GM_setValue('as_targetUrl', targetUrl);
         GM_setValue('as_currentPage', 1);
 
         startBtn.innerText = "Đang submit...";
@@ -182,122 +182,109 @@
     /* ==========================================
        PHẦN 3: CORE LOGIC - SCRAPING & ANTI-BOT
        ========================================== */
-    
-    // Hàm cuộn trang giống người (cuộn nhích từng đoạn)
     function humanScroll(callback) {
         const totalHeight = document.body.scrollHeight - window.innerHeight;
         let currentScroll = window.scrollY;
         
         function step() {
             if (currentScroll < totalHeight - 200) {
-                currentScroll += randomInt(150, 400); // Cuộn mỗi lần một đoạn
+                currentScroll += randomInt(150, 400); 
                 window.scrollTo({ top: currentScroll, behavior: 'smooth' });
-                setTimeout(step, randomInt(300, 800)); // Nghỉ giữa các nhịp cuộn
+                setTimeout(step, randomInt(300, 800)); 
             } else {
-                setTimeout(callback, randomInt(1000, 2000)); // Đến đáy thì đợi 1 chút
+                setTimeout(callback, randomInt(1000, 2000)); 
             }
         }
         step();
     }
 
     function executeSearchCore() {
-        const targetUrl = GM_getValue('as_targetUrl', '');
+        const rawTargetUrl = GM_getValue('as_targetUrl', '');
         const currentPage = GM_getValue('as_currentPage', 1);
-        const MAX_PAGES = 10; // Giới hạn tìm kiếm
+        const MAX_PAGES = 10; 
 
-        // 1. Lọc tất cả thẻ <a> trỏ ra ngoài Google (Loại trừ các link Google Maps, Images, Cache...)
+        // Phân tích URL đích do người dùng nhập để lấy Hostname chuẩn xác
+        let targetObj;
+        try {
+            targetObj = new URL(rawTargetUrl);
+        } catch(e) {
+            targetObj = new URL('https://' + rawTargetUrl);
+        }
+        const targetHost = targetObj.hostname.replace(/^www\./, '');
+        const targetPath = targetObj.pathname === '/' ? '' : targetObj.pathname;
+
         const links = Array.from(document.querySelectorAll('#search a[href^="http"], #rso a[href^="http"]'))
             .filter(a => !a.href.includes('google.'));
             
         let foundLink = null;
         for (let a of links) {
-            // Match tương đối: Ví dụ href là https://github.com/abc, targetUrl là github.com
-            if (a.href.includes(targetUrl)) {
-                foundLink = a;
-                break;
+            try {
+                let linkObj = new URL(a.href);
+                let linkHost = linkObj.hostname.replace(/^www\./, '');
+                let linkPath = linkObj.pathname === '/' ? '' : linkObj.pathname;
+
+                // Kiểm tra Hostname: Phải khớp hoàn toàn HOẶC là subdomain phụ (vd: m.tube.com khớp với tube.com)
+                // Nhờ vậy: youtube.com sẽ KHÔNG khớp với tube.com
+                let isHostMatch = linkHost === targetHost || linkHost.endsWith('.' + targetHost);
+                let isPathMatch = linkPath.startsWith(targetPath);
+
+                if (isHostMatch && isPathMatch) {
+                    foundLink = a;
+                    break;
+                }
+            } catch(e) {
+                // Bỏ qua các href dị dạng không thể parse bằng new URL()
             }
         }
         
         if (foundLink) {
-            // === TÌM THẤY ===
-            GM_setValue('as_isRunning', false); // Xóa state để dừng vòng lặp
-            
-            // Highlight bằng CSS
+            GM_setValue('as_isRunning', false); 
             foundLink.style.border = "4px solid #ff0000";
             foundLink.style.backgroundColor = "#fff3cd";
             foundLink.style.boxShadow = "0 0 15px rgba(255,0,0,0.8)";
             foundLink.style.transition = "all 0.5s";
             
             startBtn.innerText = `Tìm thấy ở trang ${currentPage}!`;
-            startBtn.style.background = '#4CAF50'; // Đổi nút thành màu xanh
+            startBtn.style.background = '#4CAF50';
             
-            // Cuộn mượt mà đến phần tử đó
             foundLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
-            // Fake delay như người thật đang đọc tiêu đề rồi mới click
             setTimeout(() => {
                 startBtn.innerText = "Đang chuyển hướng...";
-                // Ưu tiên trigger sự kiện click thực để trình duyệt tính là user-action, 
-                // nếu bị chặn thì fallback sang gán window.location
                 foundLink.click();
                 setTimeout(() => { window.location.href = foundLink.href; }, 1000);
             }, randomInt(1500, 3000));
 
         } else {
-            // === KHÔNG TÌM THẤY -> CHUYỂN TRANG ===
             if (currentPage >= MAX_PAGES) {
                 startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang. Đang reset...`;
-                
-                // 1. Xóa toàn bộ State để reset 2 ô input ở lần tải trang sau
-                GM_setValue('as_isRunning', false);
-                GM_setValue('as_keyword', '');
-                GM_setValue('as_targetUrl', '');
-                GM_setValue('as_currentPage', 1);
-                
-                // 2. Quay về trang chủ Google (origin sẽ tự động lấy google.com hoặc google.com.vn)
-                setTimeout(() => {
-                    window.location.href = window.location.origin;
-                }, 1000);
+                GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
+                setTimeout(() => { window.location.href = window.location.origin; }, 1000);
                 return;
             }
             
             startBtn.innerText = `Không thấy. Đang sang trang ${currentPage + 1}...`;
             
-            // Cuộn xuống từ từ để anti-bot Google không thấy sự kiện nhảy page tức thì
             humanScroll(() => {
-                // Nút "Tiếp" trên PC (id=pnnext) HOẶC nút "Xem thêm" trên Mobile
                 const nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"], .RVzKle, .GNJvt');
-                
                 if (nextBtn) {
                     GM_setValue('as_currentPage', currentPage + 1);
                     nextBtn.click();
                 } else {
-                    // Nếu hết kết quả từ Google trước khi chạm đến MAX_PAGES -> Cũng tiến hành Reset
                     startBtn.innerText = "Hết kết quả từ Google. Đang reset...";
-                    
-                    GM_setValue('as_isRunning', false);
-                    GM_setValue('as_keyword', '');
-                    GM_setValue('as_targetUrl', '');
-                    GM_setValue('as_currentPage', 1);
-                    
-                    setTimeout(() => {
-                        window.location.href = window.location.origin;
-                    }, 1500);
+                    GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
+                    setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 }
             });
         }
     }
 
-    // Kích hoạt Core Logic khi trang search vừa tải xong và cờ isRunning = true
     window.addEventListener('load', () => {
         if (GM_getValue('as_isRunning', false)) {
-            // Bật panel hiển thị trạng thái
             panel.style.display = 'flex';
             updatePanelPosition();
             startBtn.disabled = true;
             startBtn.innerText = `Đang quét trang ${GM_getValue('as_currentPage', 1)}...`;
-            
-            // Delay 1 chút ngay khi vừa sang trang mới cho giống người
             setTimeout(executeSearchCore, randomInt(1000, 2500));
         }
     });
