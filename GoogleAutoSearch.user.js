@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Floating UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
@@ -279,7 +279,27 @@
             startBtn.innerText = `Không thấy. Đang sang trang ${currentPage + 1}...`;
             
             humanScroll(() => {
-                const nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"], .RVzKle, .GNJvt');
+                // Ưu tiên 1: Tìm bằng selector cổ điển của PC
+                let nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"]');
+                
+                // Ưu tiên 2: Tìm theo text content hiển thị (Dành cho Mobile Load More button mới)
+                if (!nextBtn) {
+                    const allElements = document.querySelectorAll('div[role="button"], a, button, span');
+                    for (let el of allElements) {
+                        const text = el.innerText?.toLowerCase() || '';
+                        if ((text.includes('kết quả tìm kiếm khác') || text.includes('more search results') || text.includes('xem thêm')) && el.offsetParent !== null) {
+                            nextBtn = el;
+                            
+                            // Nếu thẻ bắt được chỉ là thẻ span hoặc div con, dò ngược lên tìm thẻ cha có khả năng click
+                            while (nextBtn && nextBtn.tagName !== 'A' && nextBtn.tagName !== 'BUTTON' && nextBtn.getAttribute('role') !== 'button' && nextBtn.parentElement) {
+                                if (nextBtn.tagName === 'BODY') break;
+                                nextBtn = nextBtn.parentElement;
+                            }
+                            break;
+                        }
+                    }
+                }
+
                 if (nextBtn) {
                     GM_setValue('as_currentPage', currentPage + 1);
                     nextBtn.click();
