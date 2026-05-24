@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.8.1
-// @description  Modern Dark UI, Smart Subsequence & Substring Isolation
+// @version      1.8.2
+// @description  Modern Dark UI, Dual-Pass Matching (Exact > Fuzzy) & Length Guard
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -339,7 +339,6 @@
         step();
     }
 
-    // THUẬT TOÁN KHỚP CHUỖI ĐÃ ĐƯỢC CÁCH LY CHỐNG LỖI SUBSTRING TRÙNG ĐẦU CUỐI
     function isFlexibleMatch(s1, s2) {
         if (!s1 || !s2) return false;
         
@@ -353,14 +352,13 @@
 
         if (shorter.length < 3) return false;
 
-        // CẢI TIẾN 1: CHẶN ĐỨNG BẪY CHUỖI LIỀN KỀ
-        // Nếu từ khóa nằm trọn vẹn bên trong từ dài
-        // Nó bắt buộc phải chiếm ít nhất 50% độ dài. Nếu ngắn hơn, TỪ CHỐI NGAY LẬP TỨC.
+        // BẢO VỆ TUYỆT ĐỐI CHỐNG NHẬN VƠ TITLE TRANG
+        if (longer.length > shorter.length * 2.5) return false;
+
         if (longer.includes(shorter)) {
             return shorter.length >= longer.length * 0.5;
         }
 
-        // CẢI TIẾN 2: CHUỖI ĐỨT ĐOẠN (Chỉ chạy khi không phải chuỗi liền kề)
         function checkSubsequence(sub, full) {
             let i = 0, j = 0;
             while (i < sub.length && j < full.length) {
@@ -380,7 +378,6 @@
             }
         }
 
-        // CẢI TIẾN 3: LEVENSHTEIN (Sai chính tả nhẹ)
         function getSimilarity(a, b) {
             let costs = new Array();
             for (let i = 0; i <= a.length; i++) {
@@ -401,7 +398,7 @@
             return (Math.max(a.length, b.length) - costs[b.length]) / Math.max(a.length, b.length);
         }
 
-        if (getSimilarity(clean1, clean2) >= 0.70) return true;
+        if (getSimilarity(clean1, clean2) >= 0.75) return true;
 
         return false;
     }
@@ -410,7 +407,11 @@
         if (!GM_getValue('as_isRunning', false)) return;
 
         const rawTargetUrl = GM_getValue('as_targetUrl', '').toLowerCase().trim();
-        const cleanTarget = rawTargetUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0];
+        
+        // Giữ nguyên chuỗi gốc (VD: momo.cn.com) để ưu tiên Exact Match
+        const cleanTargetFull = rawTargetUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
+        // Tách lấy từ khóa đầu tiên (VD: momo) để dự phòng cho Fuzzy Match
+        const fuzzyTarget = cleanTargetFull.split('.')[0];
         
         const currentPage = GM_getValue('as_currentPage', 1);
         const MAX_PAGES = 10; 
@@ -418,40 +419,55 @@
         const links = Array.from(document.querySelectorAll('#search a[href^="http"], #rso a[href^="http"]'))
             .filter(a => !a.href.includes('google.'));
             
-        let foundLink = null;
+        let exactMatchLink = null;
+        let fuzzyMatchLink = null;
+
         for (let a of links) {
-            let isMatch = false;
-
+            let linkHost = "";
             try {
-                let linkObj = new URL(a.href);
-                let linkHost = linkObj.hostname.replace(/^www\./, '').toLowerCase().split('.')[0];
-                
-                if (isFlexibleMatch(linkHost, cleanTarget)) {
-                    isMatch = true;
-                }
-            } catch(e) {}
+                linkHost = new URL(a.href).hostname.replace(/^www\./, '').toLowerCase();
+            } catch(e) { continue; }
 
-            if (!isMatch) {
+            // ====================================================
+            // LỚP 1: ƯU TIÊN SỐ 1 - KHỚP TÊN MIỀN EXACT MATCH 
+            // ====================================================
+            if (linkHost === cleanTargetFull || linkHost.endsWith('.' + cleanTargetFull) || linkHost.startsWith(cleanTargetFull + '.')) {
+                exactMatchLink = a;
+                break; // Tìm thấy link chuẩn xác tuyệt đối -> NGỪNG QUÉT LẬP TỨC
+            }
+
+            // ====================================================
+            // LỚP 2: DỰ PHÒNG - KHỚP MỜ (FUZZY MATCH)
+            // ====================================================
+            if (!exactMatchLink && !fuzzyMatchLink) {
+                let hostMain = linkHost.split('.')[0];
+                if (isFlexibleMatch(hostMain, fuzzyTarget)) {
+                    fuzzyMatchLink = a;
+                    continue;
+                }
+
                 let resultBlock = a.closest('.g, .xpd, .F9iR2e, .Ww4FFb') || a;
                 let visualElements = resultBlock.querySelectorAll('cite, .VuuXrf');
                 
                 if (visualElements.length > 0) {
                     for (let el of visualElements) {
-                        let domainOnly = (el.innerText || "").split(/[›>]/)[0].toLowerCase().trim().replace(/ /g, '').split('.')[0];
+                        let textRaw = el.innerText || "";
+                        let domainOnly = textRaw.split(/[›>]/)[0].toLowerCase().trim().replace(/ /g, '').split('.')[0];
                         
-                        if (isFlexibleMatch(domainOnly, cleanTarget)) {
-                            isMatch = true;
-                            break;
+                        // Lọc chặn sơ bộ trước khi đưa vào hàm tính toán nặng
+                        if (domainOnly.length <= fuzzyTarget.length * 3) {
+                            if (isFlexibleMatch(domainOnly, fuzzyTarget)) {
+                                fuzzyMatchLink = a;
+                                break;
+                            }
                         }
                     }
                 }
             }
-            
-            if (isMatch) {
-                foundLink = a;
-                break;
-            }
         }
+        
+        // Quyết định link cuối cùng (Ưu tiên Exact Match, có Exact thì bỏ qua Fuzzy)
+        let foundLink = exactMatchLink || fuzzyMatchLink;
         
         if (foundLink) {
             GM_setValue('as_isRunning', false); 
