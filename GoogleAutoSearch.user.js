@@ -33,7 +33,22 @@
         #auto-search-panel button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
         #auto-search-panel .start-btn { background: #2196F3; color: white; }
         #auto-search-panel .reset-btn { background: #757575; color: white; }
-        #auto-search-panel .close-btn { position: absolute; top: 12px; right: 12px; background: #f44336; color: white; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 14px; border-radius: 4px; line-height: 1; padding: 0;}
+        #auto-search-panel .close-btn { 
+            position: absolute; 
+            top: 12px; 
+            right: 12px; 
+            background: #f44336; 
+            color: white; 
+            width: 20px; 
+            height: 20px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: 14px; 
+            border-radius: 4px; 
+            line-height: 1; 
+            padding: 0; 
+        }
         #auto-search-panel button:disabled { background: #9e9e9e !important; cursor: not-allowed; }
     `;
     document.head.appendChild(style);
@@ -58,7 +73,7 @@
     panel.addEventListener('mousedown', e => e.stopPropagation());
     panel.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
 
-    // === LOGIC KÉO THẢ ===
+    // === LOGIC KÉO THẢ TỪ AUTOBYPASSPRO (drag-manager.js) ===
     const BUBBLE_SIZE = 50;
     let isDragging = false;
     let dragMoved = false;
@@ -140,15 +155,17 @@
 
     function openMenu() {
         if (!bubble || !panel) return;
-        bubble.style.display = 'none';
-        panel.style.display = 'flex';
         
-        const rect = bubble.getBoundingClientRect();
+        // Bật hiển thị panel lên trước để trình duyệt tính toán kích thước thực tế
+        panel.style.display = 'flex';
+        bubble.style.display = 'none';
+        
         const pW = panel.offsetWidth;
         const pH = panel.offsetHeight;
         
-        const left = rect.left < window.innerWidth / 2 ? rect.left + BUBBLE_SIZE + 10 : rect.left - pW - 10;
-        const top = rect.top < window.innerHeight / 2 ? rect.top : rect.top + BUBBLE_SIZE - pH;
+        // SỬ DỤNG TRỰC TIẾP xOffset VÀ yOffset ĐÃ LƯU CỦA BUBBLE
+        const left = xOffset < window.innerWidth / 2 ? xOffset + BUBBLE_SIZE + 10 : xOffset - pW - 10;
+        const top = xOffset < window.innerHeight / 2 ? yOffset : yOffset + BUBBLE_SIZE - pH;
         
         panel.style.left = Math.max(10, Math.min(window.innerWidth - pW - 10, left)) + 'px';
         panel.style.top = Math.max(10, Math.min(window.innerHeight - pH - 10, top)) + 'px';
@@ -181,7 +198,6 @@
     keywordInput.value = GM_getValue('as_keyword', '');
     urlInput.value = GM_getValue('as_targetUrl', '');
 
-    // Logic xử lý nút Làm mới
     clearBtn.addEventListener('click', () => {
         keywordInput.value = '';
         urlInput.value = '';
