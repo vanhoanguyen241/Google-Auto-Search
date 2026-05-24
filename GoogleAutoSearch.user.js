@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.5
-// @description  Floating UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping (AutoBypassPro UI)
+// @version      1.6
+// @description  Modern Dark UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -21,35 +21,70 @@
     if (window.top !== window.self) return;
 
     /* ==========================================
-       PHẦN 1: FOUNDATION UI (GIAO DIỆN)
+       PHẦN 1: FOUNDATION UI (GIAO DIỆN DARK MODE)
        ========================================== */
     const style = document.createElement('style');
     style.textContent = `
-        #auto-search-bubble { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; background-color: #4CAF50; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: grab; z-index: 999999; box-shadow: 0 4px 8px rgba(0,0,0,0.3); user-select: none; transition: transform 0.1s; }
-        #auto-search-bubble:active { cursor: grabbing; }
-        #auto-search-panel { position: fixed; bottom: 80px; right: 20px; width: 300px; max-width: 90vw; background: white; border: 1px solid #ccc; border-radius: 8px; padding: 15px; z-index: 999998; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; flex-direction: column; gap: 10px; font-family: Arial, sans-serif; color: #333; }
-        #auto-search-panel h4 { margin: 0; padding-right: 30px; text-align: left; }
-        #auto-search-panel input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; width: 100%; }
-        #auto-search-panel button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
-        #auto-search-panel .start-btn { background: #2196F3; color: white; }
-        #auto-search-panel .reset-btn { background: #757575; color: white; }
-        #auto-search-panel .close-btn { 
-            position: absolute; 
-            top: 12px; 
-            right: 12px; 
-            background: #f44336; 
-            color: white; 
-            width: 20px; 
-            height: 20px; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            font-size: 14px; 
-            border-radius: 4px; 
-            line-height: 1; 
-            padding: 0; 
+        /* Bubble nổi */
+        #auto-search-bubble { 
+            position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; 
+            background: linear-gradient(135deg, #3b82f6, #2563eb); 
+            color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; 
+            font-size: 22px; cursor: grab; z-index: 999999; 
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); 
+            user-select: none; transition: transform 0.15s ease, box-shadow 0.15s ease; 
         }
-        #auto-search-panel button:disabled { background: #9e9e9e !important; cursor: not-allowed; }
+        #auto-search-bubble:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6); }
+        #auto-search-bubble:active { cursor: grabbing; transform: scale(0.95); }
+
+        /* Khung Panel */
+        #auto-search-panel { 
+            position: fixed; bottom: 80px; right: 20px; width: 320px; max-width: 90vw; 
+            background: #1f2937; /* Xám đen đậm */
+            color: #f3f4f6; /* Trắng xám */
+            border: 1px solid #374151; 
+            border-radius: 16px; padding: 20px; z-index: 999998; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+            display: none; flex-direction: column; gap: 14px; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+        }
+        #auto-search-panel h4 { 
+            margin: 0; padding-right: 30px; text-align: left; 
+            font-size: 16px; font-weight: 600; color: #f9fafb; letter-spacing: 0.5px;
+        }
+
+        /* Ô nhập liệu */
+        #auto-search-panel input { 
+            padding: 12px; background: #111827; color: #f9fafb;
+            border: 1px solid #374151; border-radius: 8px; box-sizing: border-box; width: 100%; 
+            font-size: 14px; outline: none; transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        #auto-search-panel input::placeholder { color: #6b7280; }
+        #auto-search-panel input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
+
+        /* Nút chức năng */
+        #auto-search-panel button { 
+            padding: 10px; cursor: pointer; border: none; border-radius: 8px; 
+            font-weight: 600; font-size: 14px; transition: all 0.2s ease; 
+        }
+        #auto-search-panel .start-btn { background: #3b82f6; color: white; }
+        #auto-search-panel .start-btn:hover:not(:disabled) { background: #2563eb; }
+        #auto-search-panel .start-btn:active:not(:disabled) { transform: scale(0.98); }
+        
+        #auto-search-panel .reset-btn { background: #374151; color: #d1d5db; }
+        #auto-search-panel .reset-btn:hover { background: #4b5563; color: white; }
+        #auto-search-panel .reset-btn:active { transform: scale(0.98); }
+
+        #auto-search-panel button:disabled { background: #4b5563 !important; color: #9ca3af !important; cursor: not-allowed; }
+
+        /* Nút thu nhỏ */
+        #auto-search-panel .close-btn { 
+            position: absolute; top: 16px; right: 16px; 
+            background: transparent; color: #9ca3af; 
+            width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; 
+            font-size: 18px; border-radius: 6px; padding: 0; line-height: 1;
+        }
+        #auto-search-panel .close-btn:hover { background: #374151; color: #ef4444; }
     `;
     document.head.appendChild(style);
 
@@ -61,7 +96,7 @@
     const panel = document.createElement('div');
     panel.id = 'auto-search-panel';
     panel.innerHTML = `
-        <button id="as-close-btn" class="close-btn">-</button>
+        <button id="as-close-btn" class="close-btn" title="Thu nhỏ">-</button>
         <h4>Auto Search</h4>
         <input type="text" id="as-keyword" placeholder="Nhập từ khóa...">
         <input type="text" id="as-url" placeholder="Nhập URL / Tên web che link">
@@ -73,8 +108,8 @@
     panel.addEventListener('mousedown', e => e.stopPropagation());
     panel.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
 
-    // === LOGIC KÉO THẢ TỪ AUTOBYPASSPRO (drag-manager.js) ===
-    const BUBBLE_SIZE = 50;
+    // === LOGIC KÉO THẢ ===
+    const BUBBLE_SIZE = 52;
     let isDragging = false;
     let dragMoved = false;
     let currentX = 0;
@@ -156,14 +191,12 @@
     function openMenu() {
         if (!bubble || !panel) return;
         
-        // Bật hiển thị panel lên trước để trình duyệt tính toán kích thước thực tế
         panel.style.display = 'flex';
         bubble.style.display = 'none';
         
         const pW = panel.offsetWidth;
         const pH = panel.offsetHeight;
         
-        // SỬ DỤNG TRỰC TIẾP xOffset VÀ yOffset ĐÃ LƯU CỦA BUBBLE
         const left = xOffset < window.innerWidth / 2 ? xOffset + BUBBLE_SIZE + 10 : xOffset - pW - 10;
         const top = xOffset < window.innerHeight / 2 ? yOffset : yOffset + BUBBLE_SIZE - pH;
         
@@ -208,7 +241,7 @@
     function resetBtn() {
         startBtn.innerText = "Bắt đầu tìm";
         startBtn.disabled = false;
-        startBtn.style.background = '#2196F3';
+        startBtn.style.background = '#3b82f6';
     }
 
     function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -341,13 +374,14 @@
         
         if (foundLink) {
             GM_setValue('as_isRunning', false); 
-            foundLink.style.border = "4px solid #ff0000";
-            foundLink.style.backgroundColor = "#fff3cd";
-            foundLink.style.boxShadow = "0 0 15px rgba(255,0,0,0.8)";
+            foundLink.style.border = "4px solid #3b82f6";
+            foundLink.style.backgroundColor = "rgba(59, 130, 246, 0.1)";
+            foundLink.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.5)";
             foundLink.style.transition = "all 0.5s";
+            foundLink.style.borderRadius = "8px";
             
             startBtn.innerText = `Tìm thấy ở trang ${currentPage}!`;
-            startBtn.style.background = '#4CAF50';
+            startBtn.style.background = '#10b981'; // Xanh lá cây
             
             foundLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
@@ -359,9 +393,10 @@
 
         } else {
             if (currentPage >= MAX_PAGES) {
-                startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang. Đang reset...`;
+                startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang.`;
+                startBtn.style.background = '#ef4444'; // Đỏ
                 GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
-                setTimeout(() => { window.location.href = window.location.origin; }, 1000);
+                setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 return;
             }
             
@@ -389,7 +424,8 @@
                     GM_setValue('as_currentPage', currentPage + 1);
                     nextBtn.click();
                 } else {
-                    startBtn.innerText = "Hết kết quả từ Google. Đang reset...";
+                    startBtn.innerText = "Hết kết quả từ Google.";
+                    startBtn.style.background = '#ef4444'; // Đỏ
                     GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
                     setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 }
