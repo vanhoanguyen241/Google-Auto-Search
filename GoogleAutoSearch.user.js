@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Floating UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping
+// @version      1.5
+// @description  Floating UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping (AutoBypassPro UI)
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -28,11 +28,13 @@
         #auto-search-bubble { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; background-color: #4CAF50; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: grab; z-index: 999999; box-shadow: 0 4px 8px rgba(0,0,0,0.3); user-select: none; transition: transform 0.1s; }
         #auto-search-bubble:active { cursor: grabbing; }
         #auto-search-panel { position: fixed; bottom: 80px; right: 20px; width: 300px; max-width: 90vw; background: white; border: 1px solid #ccc; border-radius: 8px; padding: 15px; z-index: 999998; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; flex-direction: column; gap: 10px; font-family: Arial, sans-serif; color: #333; }
-        #auto-search-panel h4 { margin: 0; text-align: center; }
-        #auto-search-panel input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        #auto-search-panel button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; background: #2196F3; color: white; font-weight: bold; }
-        #auto-search-panel button.close-btn { background: #f44336; }
-        #auto-search-panel button:disabled { background: #9e9e9e; cursor: not-allowed; }
+        #auto-search-panel h4 { margin: 0; padding-right: 30px; text-align: left; }
+        #auto-search-panel input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; width: 100%; }
+        #auto-search-panel button { padding: 8px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
+        #auto-search-panel .start-btn { background: #2196F3; color: white; }
+        #auto-search-panel .reset-btn { background: #757575; color: white; }
+        #auto-search-panel .close-btn { position: absolute; top: 12px; right: 12px; background: #f44336; color: white; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 14px; border-radius: 4px; line-height: 1; padding: 0;}
+        #auto-search-panel button:disabled { background: #9e9e9e !important; cursor: not-allowed; }
     `;
     document.head.appendChild(style);
 
@@ -44,18 +46,19 @@
     const panel = document.createElement('div');
     panel.id = 'auto-search-panel';
     panel.innerHTML = `
+        <button id="as-close-btn" class="close-btn">-</button>
         <h4>Auto Search</h4>
         <input type="text" id="as-keyword" placeholder="Nhập từ khóa...">
         <input type="text" id="as-url" placeholder="Nhập URL / Tên web che link">
-        <button id="as-start-btn">Bắt đầu tìm</button>
-        <button id="as-close-btn" class="close-btn">Thu nhỏ / Hủy</button>
+        <button id="as-start-btn" class="start-btn">Bắt đầu tìm</button>
+        <button id="as-clear-btn" class="reset-btn">Làm mới</button>
     `;
     document.body.appendChild(panel);
 
     panel.addEventListener('mousedown', e => e.stopPropagation());
     panel.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
 
-    // === LOGIC KÉO THẢ CHUẨN TỪ AUTOBYPASSPRO (drag-manager.js + ui-controller.js) ===
+    // === LOGIC KÉO THẢ ===
     const BUBBLE_SIZE = 50;
     let isDragging = false;
     let dragMoved = false;
@@ -123,7 +126,6 @@
         if (dragMoved) {
             GM_setValue('as_bubble_pos', { x: currentX, y: currentY });
         } else {
-            // Triệt tiêu triệt để Ghost Click
             if (e.type === 'touchend' && e.cancelable) e.preventDefault();
             openMenu();
         }
@@ -136,10 +138,9 @@
     window.addEventListener('mousemove', drag);
     window.addEventListener('mouseup', dragEnd);
 
-    // Xử lý Menu tách biệt theo kiến trúc UI Controller
     function openMenu() {
         if (!bubble || !panel) return;
-        bubble.style.display = 'none'; // Ẩn bong bóng đi để chống đè UI
+        bubble.style.display = 'none';
         panel.style.display = 'flex';
         
         const rect = bubble.getBoundingClientRect();
@@ -159,8 +160,6 @@
         if (!bubble || !panel) return;
         panel.style.display = 'none';
         bubble.style.display = 'flex';
-        
-        // Đảm bảo bong bóng trở về đúng vị trí đã lưu
         bubble.style.left = xOffset + 'px';
         bubble.style.top = yOffset + 'px';
     }
@@ -177,9 +176,18 @@
     const startBtn = document.getElementById('as-start-btn');
     const keywordInput = document.getElementById('as-keyword');
     const urlInput = document.getElementById('as-url');
+    const clearBtn = document.getElementById('as-clear-btn');
 
     keywordInput.value = GM_getValue('as_keyword', '');
     urlInput.value = GM_getValue('as_targetUrl', '');
+
+    // Logic xử lý nút Làm mới
+    clearBtn.addEventListener('click', () => {
+        keywordInput.value = '';
+        urlInput.value = '';
+        GM_setValue('as_keyword', '');
+        GM_setValue('as_targetUrl', '');
+    });
 
     function resetBtn() {
         startBtn.innerText = "Bắt đầu tìm";
@@ -375,7 +383,6 @@
 
     window.addEventListener('load', () => {
         if (GM_getValue('as_isRunning', false)) {
-            // Khi đang chạy tự động, hiển thị thẳng panel thay vì bong bóng
             openMenu();
             startBtn.disabled = true;
             startBtn.innerText = `Đang quét trang ${GM_getValue('as_currentPage', 1)}...`;
