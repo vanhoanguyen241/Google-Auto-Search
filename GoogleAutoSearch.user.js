@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.7
-// @description  Modern Dark UI, Pre-flight Check, Subsequence Match & Auto-Scraping
+// @version      1.8
+// @description  Modern Dark UI, Pre-flight Check, Subsequence Match & Smart Stop Button
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -18,6 +18,8 @@
     'use strict';
 
     if (window.top !== window.self) return;
+
+    let runTimer = null; // Biến toàn cục quản lý luồng delay quét trang
 
     /* ==========================================
        PHẦN 1: FOUNDATION UI (GIAO DIỆN DARK MODE)
@@ -64,6 +66,10 @@
         #auto-search-panel .start-btn:hover:not(:disabled) { background: #2563eb; }
         #auto-search-panel .start-btn:active:not(:disabled) { transform: scale(0.98); }
         
+        #auto-search-panel .stop-btn { background: #ef4444; color: white; }
+        #auto-search-panel .stop-btn:hover { background: #dc2626; }
+        #auto-search-panel .stop-btn:active { transform: scale(0.98); }
+
         #auto-search-panel .reset-btn { background: #374151; color: #d1d5db; }
         #auto-search-panel .reset-btn:hover { background: #4b5563; color: white; }
         #auto-search-panel .reset-btn:active { transform: scale(0.98); }
@@ -93,6 +99,7 @@
         <input type="text" id="as-keyword" placeholder="Nhập từ khóa...">
         <input type="text" id="as-url" placeholder="Nhập URL / Tên web che link">
         <button id="as-start-btn" class="start-btn">Bắt đầu tìm</button>
+        <button id="as-stop-btn" class="stop-btn" style="display: none;">Dừng tìm</button>
         <button id="as-clear-btn" class="reset-btn">Làm mới</button>
     `;
     document.body.appendChild(panel);
@@ -100,7 +107,7 @@
     panel.addEventListener('mousedown', e => e.stopPropagation());
     panel.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
 
-    // === LOGIC KÉO THẢ ===
+    // === LOGIC KÉO THẢ TỪ AUTOBYPASSPRO ===
     const BUBBLE_SIZE = 52;
     let isDragging = false;
     let dragMoved = false;
@@ -207,7 +214,11 @@
     }
     
     document.getElementById('as-close-btn').addEventListener('click', () => {
-        GM_setValue('as_isRunning', false);
+        // Nếu người dùng đóng panel khi đang quét, coi như hủy tiến trình
+        if (GM_getValue('as_isRunning', false)) {
+            GM_setValue('as_isRunning', false);
+            clearTimeout(runTimer);
+        }
         resetBtn();
         closeMenu();
     });
@@ -216,6 +227,7 @@
        PHẦN 2: PRE-FLIGHT (SOFT-PING) & TYPING
        ========================================== */
     const startBtn = document.getElementById('as-start-btn');
+    const stopBtn = document.getElementById('as-stop-btn');
     const keywordInput = document.getElementById('as-keyword');
     const urlInput = document.getElementById('as-url');
     const clearBtn = document.getElementById('as-clear-btn');
@@ -230,10 +242,22 @@
         GM_setValue('as_targetUrl', '');
     });
 
+    // SỰ KIỆN NÚT DỪNG TÌM KIẾM KHẨN CẤP
+    stopBtn.addEventListener('click', () => {
+        GM_setValue('as_isRunning', false);
+        clearTimeout(runTimer); // Chặn ngay lệnh chuyển trang kế tiếp
+        stopBtn.style.display = 'none';
+        resetBtn();
+        startBtn.innerText = "Đã dừng tìm kiếm";
+        startBtn.style.background = '#757575';
+        setTimeout(() => { resetBtn(); }, 2000);
+    });
+
     function resetBtn() {
         startBtn.innerText = "Bắt đầu tìm";
         startBtn.disabled = false;
         startBtn.style.background = '#3b82f6';
+        stopBtn.style.display = 'none';
     }
 
     function randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -255,7 +279,7 @@
                     startBtn.innerText = "Đang gõ từ khóa...";
                     simulateHumanTyping(keyword, targetUrl);
                 } else {
-                    if (confirm(`Trang web trả về lỗi ${res.status}. Có thể web đã sập hoặc chặn truy cập trực tiếp.\nBạn có muốn BỎ QUA và vẫn tiếp tục tìm kiếm không?`)) {
+                    if (confirm(`Trang web trả về lỗi ${res.status}. Có thể web đã sập hoặc chặn truy cập trực tiếp.\nBạn có muốn BỎ QUA và vẫn tiếp tục tìm kiếm không?`)) {
                         simulateHumanTyping(keyword, targetUrl);
                     } else resetBtn();
                 }
@@ -311,6 +335,9 @@
         let currentScroll = window.scrollY;
         
         function step() {
+            // Nếu trong lúc đang cuộn chuột mà user nhấn dừng -> Ngắt ngay lập tức
+            if (!GM_getValue('as_isRunning', false)) return;
+
             if (currentScroll < totalHeight - 200) {
                 currentScroll += randomInt(150, 400); 
                 window.scrollTo({ top: currentScroll, behavior: 'smooth' });
@@ -322,14 +349,12 @@
         step();
     }
 
-    // THUẬT TOÁN KHỚP CHUỖI THÔNG MINH (SUBSEQUENCE NÂNG CAO)
     function isFlexibleMatch(s1, s2) {
         if (!s1 || !s2) return false;
         
         let clean1 = s1.toLowerCase().replace(/[^a-z0-9]/g, '');
         let clean2 = s2.toLowerCase().replace(/[^a-z0-9]/g, '');
         
-        // 1. Khớp hoàn toàn hoặc chứa trực tiếp
         if (clean1.includes(clean2) || clean2.includes(clean1)) return true;
 
         let shorter = clean1.length < clean2.length ? clean1 : clean2;
@@ -337,7 +362,6 @@
 
         if (shorter.length < 2) return false;
 
-        // 2. Thuật toán Subsequence (chuỗi con đứt đoạn đúng thứ tự)
         function checkSubsequence(sub, full) {
             let i = 0, j = 0;
             while (i < sub.length && j < full.length) {
@@ -348,7 +372,6 @@
         }
 
         if (checkSubsequence(shorter, longer)) {
-            // Nới lỏng điều kiện: Chỉ cần Cùng chữ đầu HOẶC Cùng chữ cuối HOẶC Dài trên 50%
             let isSameStart = shorter[0] === longer[0];
             let isSameEnd = shorter[shorter.length - 1] === longer[longer.length - 1];
             let isMajority = shorter.length >= longer.length * 0.5;
@@ -356,7 +379,6 @@
             if (isSameStart || isSameEnd || isMajority) return true;
         }
 
-        // 3. Fallback cho Levenshtein (Cho phép gõ sai nhẹ như yuotube)
         function getSimilarity(a, b) {
             let costs = new Array();
             for (let i = 0; i <= a.length; i++) {
@@ -383,6 +405,8 @@
     }
 
     function executeSearchCore() {
+        if (!GM_getValue('as_isRunning', false)) return;
+
         const rawTargetUrl = GM_getValue('as_targetUrl', '').toLowerCase().trim();
         const cleanTarget = rawTargetUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0];
         
@@ -396,7 +420,6 @@
         for (let a of links) {
             let isMatch = false;
 
-            // CẤP ĐỘ 1: XỬ LÝ TRÊN DOMAIN URL THỰC TẾ
             try {
                 let linkObj = new URL(a.href);
                 let linkHost = linkObj.hostname.replace(/^www\./, '').toLowerCase().split('.')[0];
@@ -406,7 +429,6 @@
                 }
             } catch(e) {}
 
-            // CẤP ĐỘ 2: XỬ LÝ TRÊN BREADCRUMB (Dành cho web che link)
             if (!isMatch) {
                 let resultBlock = a.closest('.g, .xpd, .F9iR2e, .Ww4FFb') || a;
                 let visualElements = resultBlock.querySelectorAll('cite, .VuuXrf');
@@ -431,6 +453,8 @@
         
         if (foundLink) {
             GM_setValue('as_isRunning', false); 
+            stopBtn.style.display = 'none';
+            
             foundLink.style.border = "4px solid #3b82f6";
             foundLink.style.backgroundColor = "rgba(59, 130, 246, 0.1)";
             foundLink.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.5)";
@@ -452,6 +476,7 @@
             if (currentPage >= MAX_PAGES) {
                 startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang.`;
                 startBtn.style.background = '#ef4444'; 
+                stopBtn.style.display = 'none';
                 GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
                 setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 return;
@@ -460,6 +485,8 @@
             startBtn.innerText = `Không thấy. Đang sang trang ${currentPage + 1}...`;
             
             humanScroll(() => {
+                if (!GM_getValue('as_isRunning', false)) return;
+
                 let nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"]');
                 
                 if (!nextBtn) {
@@ -483,6 +510,7 @@
                 } else {
                     startBtn.innerText = "Hết kết quả từ Google.";
                     startBtn.style.background = '#ef4444'; 
+                    stopBtn.style.display = 'none';
                     GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
                     setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 }
@@ -495,7 +523,11 @@
             openMenu();
             startBtn.disabled = true;
             startBtn.innerText = `Đang quét trang ${GM_getValue('as_currentPage', 1)}...`;
-            setTimeout(executeSearchCore, randomInt(1000, 2500));
+            
+            // Hiển thị nút Dừng tìm khi luồng tự động hoạt động
+            stopBtn.style.display = 'block';
+            
+            runTimer = setTimeout(executeSearchCore, randomInt(1000, 2500));
         }
     });
 
