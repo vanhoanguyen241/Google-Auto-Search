@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Floating UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
@@ -26,7 +26,7 @@
     const style = document.createElement('style');
     style.textContent = `
         #auto-search-bubble { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; background-color: #4CAF50; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: grab; z-index: 999999; box-shadow: 0 4px 8px rgba(0,0,0,0.3); user-select: none; transition: transform 0.1s; }
-        #auto-search-bubble:active { cursor: grabbing; transform: scale(0.95); }
+        #auto-search-bubble:active { cursor: grabbing; }
         #auto-search-panel { position: fixed; bottom: 80px; right: 20px; width: 300px; max-width: 90vw; background: white; border: 1px solid #ccc; border-radius: 8px; padding: 15px; z-index: 999998; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; flex-direction: column; gap: 10px; font-family: Arial, sans-serif; color: #333; }
         #auto-search-panel h4 { margin: 0; text-align: center; }
         #auto-search-panel input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
@@ -55,55 +55,120 @@
     panel.addEventListener('mousedown', e => e.stopPropagation());
     panel.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
 
-    let isInteraction = false, isClick = true, initialX, initialY;
+    // === LOGIC KÉO THẢ CHUẨN TỪ AUTOBYPASSPRO (drag-manager.js + ui-controller.js) ===
+    const BUBBLE_SIZE = 50;
+    let isDragging = false;
+    let dragMoved = false;
+    let currentX = 0;
+    let currentY = 0;
+    let initialX = 0;
+    let initialY = 0;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    setTimeout(() => {
+        const saved = GM_getValue('as_bubble_pos');
+        if (saved) {
+            xOffset = saved.x;
+            yOffset = saved.y;
+        } else {
+            const rect = bubble.getBoundingClientRect();
+            xOffset = rect.left;
+            yOffset = rect.top;
+        }
+        bubble.style.right = 'auto';
+        bubble.style.bottom = 'auto';
+        bubble.style.left = xOffset + 'px';
+        bubble.style.top = yOffset + 'px';
+    }, 50);
 
     function dragStart(e) {
-        isInteraction = true; isClick = true;
-        const clientX = e.type === "touchstart" ? e.touches[0].clientX : e.clientX;
-        const clientY = e.type === "touchstart" ? e.touches[0].clientY : e.clientY;
-        initialX = clientX - bubble.getBoundingClientRect().left;
-        initialY = clientY - bubble.getBoundingClientRect().top;
+        const cX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const cY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        if (e.type === 'mousedown' && e.button !== 0) return;
+
+        if (e.target === bubble || bubble.contains(e.target)) {
+            initialX = cX - xOffset;
+            initialY = cY - yOffset;
+            isDragging = true;
+            dragMoved = false;
+            bubble.style.transform = 'scale(0.9)';
+        }
     }
 
     function drag(e) {
-        if (!isInteraction) return; 
-        isClick = false; 
-        if(e.type === "touchmove") e.preventDefault(); 
-        const clientX = e.type === "touchmove" ? e.touches[0].clientX : e.clientX;
-        const clientY = e.type === "touchmove" ? e.touches[0].clientY : e.clientY;
-        const maxX = window.innerWidth - bubble.offsetWidth;
-        const maxY = window.innerHeight - bubble.offsetHeight;
-        bubble.style.left = Math.max(0, Math.min(clientX - initialX, maxX)) + "px";
-        bubble.style.top = Math.max(0, Math.min(clientY - initialY, maxY)) + "px";
-        bubble.style.bottom = "auto"; bubble.style.right = "auto";
+        if (!isDragging) return;
+        const cX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const cY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+        if (!dragMoved && Math.abs(cX - initialX - xOffset) < 5 && Math.abs(cY - initialY - yOffset) < 5) return;
+
+        dragMoved = true;
+        if (e.cancelable) e.preventDefault();
+
+        currentX = Math.max(0, Math.min(window.innerWidth - BUBBLE_SIZE, cX - initialX));
+        currentY = Math.max(0, Math.min(window.innerHeight - BUBBLE_SIZE, cY - initialY));
+        xOffset = currentX;
+        yOffset = currentY;
+        
+        bubble.style.left = currentX + 'px';
+        bubble.style.top = currentY + 'px';
     }
 
-    function dragEnd() {
-        if (!isInteraction) return; 
-        isInteraction = false;
-        if (isClick) togglePanel(); else updatePanelPosition();
+    function dragEnd(e) {
+        if (!isDragging) return;
+        isDragging = false;
+        bubble.style.transform = 'scale(1)';
+
+        if (dragMoved) {
+            GM_setValue('as_bubble_pos', { x: currentX, y: currentY });
+        } else {
+            // Triệt tiêu triệt để Ghost Click
+            if (e.type === 'touchend' && e.cancelable) e.preventDefault();
+            openMenu();
+        }
     }
 
-    bubble.addEventListener('mousedown', dragStart); document.addEventListener('mousemove', drag); document.addEventListener('mouseup', dragEnd);
-    bubble.addEventListener('touchstart', dragStart, {passive: false}); document.addEventListener('touchmove', drag, {passive: false}); document.addEventListener('touchend', dragEnd);
+    bubble.addEventListener('touchstart', dragStart, { passive: false });
+    window.addEventListener('touchmove', drag, { passive: false });
+    window.addEventListener('touchend', dragEnd);
+    bubble.addEventListener('mousedown', dragStart);
+    window.addEventListener('mousemove', drag);
+    window.addEventListener('mouseup', dragEnd);
 
-    function updatePanelPosition() {
-        if (panel.style.display !== 'flex') return;
-        const bRect = bubble.getBoundingClientRect();
-        panel.style.bottom = "auto"; panel.style.right = "auto";
-        panel.style.top = (bRect.top > 250 ? bRect.top - panel.offsetHeight - 15 : bRect.bottom + 15) + "px";
-        panel.style.left = Math.min(Math.max(10, bRect.left - (panel.offsetWidth / 2) + 25), window.innerWidth - panel.offsetWidth - 10) + "px";
+    // Xử lý Menu tách biệt theo kiến trúc UI Controller
+    function openMenu() {
+        if (!bubble || !panel) return;
+        bubble.style.display = 'none'; // Ẩn bong bóng đi để chống đè UI
+        panel.style.display = 'flex';
+        
+        const rect = bubble.getBoundingClientRect();
+        const pW = panel.offsetWidth;
+        const pH = panel.offsetHeight;
+        
+        const left = rect.left < window.innerWidth / 2 ? rect.left + BUBBLE_SIZE + 10 : rect.left - pW - 10;
+        const top = rect.top < window.innerHeight / 2 ? rect.top : rect.top + BUBBLE_SIZE - pH;
+        
+        panel.style.left = Math.max(10, Math.min(window.innerWidth - pW - 10, left)) + 'px';
+        panel.style.top = Math.max(10, Math.min(window.innerHeight - pH - 10, top)) + 'px';
+        panel.style.bottom = 'auto';
+        panel.style.right = 'auto';
     }
 
-    function togglePanel() {
-        panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
-        if (panel.style.display === 'flex') requestAnimationFrame(updatePanelPosition);
+    function closeMenu() {
+        if (!bubble || !panel) return;
+        panel.style.display = 'none';
+        bubble.style.display = 'flex';
+        
+        // Đảm bảo bong bóng trở về đúng vị trí đã lưu
+        bubble.style.left = xOffset + 'px';
+        bubble.style.top = yOffset + 'px';
     }
     
     document.getElementById('as-close-btn').addEventListener('click', () => {
         GM_setValue('as_isRunning', false);
         resetBtn();
-        togglePanel();
+        closeMenu();
     });
 
     /* ==========================================
@@ -279,18 +344,14 @@
             startBtn.innerText = `Không thấy. Đang sang trang ${currentPage + 1}...`;
             
             humanScroll(() => {
-                // Ưu tiên 1: Tìm bằng selector cổ điển của PC
                 let nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"]');
                 
-                // Ưu tiên 2: Tìm theo text content hiển thị (Dành cho Mobile Load More button mới)
                 if (!nextBtn) {
                     const allElements = document.querySelectorAll('div[role="button"], a, button, span');
                     for (let el of allElements) {
                         const text = el.innerText?.toLowerCase() || '';
                         if ((text.includes('kết quả tìm kiếm khác') || text.includes('more search results') || text.includes('xem thêm')) && el.offsetParent !== null) {
                             nextBtn = el;
-                            
-                            // Nếu thẻ bắt được chỉ là thẻ span hoặc div con, dò ngược lên tìm thẻ cha có khả năng click
                             while (nextBtn && nextBtn.tagName !== 'A' && nextBtn.tagName !== 'BUTTON' && nextBtn.getAttribute('role') !== 'button' && nextBtn.parentElement) {
                                 if (nextBtn.tagName === 'BODY') break;
                                 nextBtn = nextBtn.parentElement;
@@ -314,8 +375,8 @@
 
     window.addEventListener('load', () => {
         if (GM_getValue('as_isRunning', false)) {
-            panel.style.display = 'flex';
-            updatePanelPosition();
+            // Khi đang chạy tự động, hiển thị thẳng panel thay vì bong bóng
+            openMenu();
             startBtn.disabled = true;
             startBtn.innerText = `Đang quét trang ${GM_getValue('as_currentPage', 1)}...`;
             setTimeout(executeSearchCore, randomInt(1000, 2500));
