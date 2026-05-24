@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.6
-// @description  Modern Dark UI, Pre-flight Check, Regex Word Boundary & Auto-Scraping
+// @version      1.7
+// @description  Modern Dark UI, Pre-flight Check, Subsequence Match & Auto-Scraping
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -17,7 +17,6 @@
 (function() {
     'use strict';
 
-    // NGĂN CHẶN CHẠY TRONG IFRAME (ReCaptcha, Google Maps)
     if (window.top !== window.self) return;
 
     /* ==========================================
@@ -25,7 +24,6 @@
        ========================================== */
     const style = document.createElement('style');
     style.textContent = `
-        /* Bubble nổi */
         #auto-search-bubble { 
             position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; 
             background: linear-gradient(135deg, #3b82f6, #2563eb); 
@@ -37,12 +35,9 @@
         #auto-search-bubble:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6); }
         #auto-search-bubble:active { cursor: grabbing; transform: scale(0.95); }
 
-        /* Khung Panel */
         #auto-search-panel { 
             position: fixed; bottom: 80px; right: 20px; width: 320px; max-width: 90vw; 
-            background: #1f2937; /* Xám đen đậm */
-            color: #f3f4f6; /* Trắng xám */
-            border: 1px solid #374151; 
+            background: #1f2937; color: #f3f4f6; border: 1px solid #374151; 
             border-radius: 16px; padding: 20px; z-index: 999998; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
             display: none; flex-direction: column; gap: 14px; 
@@ -53,7 +48,6 @@
             font-size: 16px; font-weight: 600; color: #f9fafb; letter-spacing: 0.5px;
         }
 
-        /* Ô nhập liệu */
         #auto-search-panel input { 
             padding: 12px; background: #111827; color: #f9fafb;
             border: 1px solid #374151; border-radius: 8px; box-sizing: border-box; width: 100%; 
@@ -62,7 +56,6 @@
         #auto-search-panel input::placeholder { color: #6b7280; }
         #auto-search-panel input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
 
-        /* Nút chức năng */
         #auto-search-panel button { 
             padding: 10px; cursor: pointer; border: none; border-radius: 8px; 
             font-weight: 600; font-size: 14px; transition: all 0.2s ease; 
@@ -77,7 +70,6 @@
 
         #auto-search-panel button:disabled { background: #4b5563 !important; color: #9ca3af !important; cursor: not-allowed; }
 
-        /* Nút thu nhỏ */
         #auto-search-panel .close-btn { 
             position: absolute; top: 16px; right: 16px; 
             background: transparent; color: #9ca3af; 
@@ -330,8 +322,70 @@
         step();
     }
 
+    // THUẬT TOÁN KHỚP CHUỖI THÔNG MINH (SUBSEQUENCE NÂNG CAO)
+    function isFlexibleMatch(s1, s2) {
+        if (!s1 || !s2) return false;
+        
+        let clean1 = s1.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let clean2 = s2.toLowerCase().replace(/[^a-z0-9]/g, '');
+        
+        // 1. Khớp hoàn toàn hoặc chứa trực tiếp
+        if (clean1.includes(clean2) || clean2.includes(clean1)) return true;
+
+        let shorter = clean1.length < clean2.length ? clean1 : clean2;
+        let longer = clean1.length >= clean2.length ? clean1 : clean2;
+
+        if (shorter.length < 2) return false;
+
+        // 2. Thuật toán Subsequence (chuỗi con đứt đoạn đúng thứ tự)
+        function checkSubsequence(sub, full) {
+            let i = 0, j = 0;
+            while (i < sub.length && j < full.length) {
+                if (sub[i] === full[j]) i++;
+                j++;
+            }
+            return i === sub.length;
+        }
+
+        if (checkSubsequence(shorter, longer)) {
+            // Nới lỏng điều kiện: Chỉ cần Cùng chữ đầu HOẶC Cùng chữ cuối HOẶC Dài trên 50%
+            let isSameStart = shorter[0] === longer[0];
+            let isSameEnd = shorter[shorter.length - 1] === longer[longer.length - 1];
+            let isMajority = shorter.length >= longer.length * 0.5;
+            
+            if (isSameStart || isSameEnd || isMajority) return true;
+        }
+
+        // 3. Fallback cho Levenshtein (Cho phép gõ sai nhẹ như yuotube)
+        function getSimilarity(a, b) {
+            let costs = new Array();
+            for (let i = 0; i <= a.length; i++) {
+                let lastValue = i;
+                for (let j = 0; j <= b.length; j++) {
+                    if (i == 0) costs[j] = j;
+                    else {
+                        if (j > 0) {
+                            let newValue = costs[j - 1];
+                            if (a.charAt(i - 1) != b.charAt(j - 1)) newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                            costs[j - 1] = lastValue;
+                            lastValue = newValue;
+                        }
+                    }
+                }
+                if (i > 0) costs[b.length] = lastValue;
+            }
+            return (Math.max(a.length, b.length) - costs[b.length]) / Math.max(a.length, b.length);
+        }
+
+        if (getSimilarity(clean1, clean2) >= 0.65) return true;
+
+        return false;
+    }
+
     function executeSearchCore() {
-        const rawTargetUrl = GM_getValue('as_targetUrl', '').toLowerCase();
+        const rawTargetUrl = GM_getValue('as_targetUrl', '').toLowerCase().trim();
+        const cleanTarget = rawTargetUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0];
+        
         const currentPage = GM_getValue('as_currentPage', 1);
         const MAX_PAGES = 10; 
 
@@ -342,27 +396,30 @@
         for (let a of links) {
             let isMatch = false;
 
+            // CẤP ĐỘ 1: XỬ LÝ TRÊN DOMAIN URL THỰC TẾ
             try {
-                let targetObj = new URL(/^https?:\/\//i.test(rawTargetUrl) ? rawTargetUrl : 'https://' + rawTargetUrl);
-                let targetHost = targetObj.hostname.replace(/^www\./, '');
-                let targetPath = targetObj.pathname === '/' ? '' : targetObj.pathname;
-
                 let linkObj = new URL(a.href);
-                let linkHost = linkObj.hostname.replace(/^www\./, '');
-                let linkPath = linkObj.pathname === '/' ? '' : linkObj.pathname;
-
-                if ((linkHost === targetHost || linkHost.endsWith('.' + targetHost)) && linkPath.startsWith(targetPath)) {
+                let linkHost = linkObj.hostname.replace(/^www\./, '').toLowerCase().split('.')[0];
+                
+                if (isFlexibleMatch(linkHost, cleanTarget)) {
                     isMatch = true;
                 }
             } catch(e) {}
 
+            // CẤP ĐỘ 2: XỬ LÝ TRÊN BREADCRUMB (Dành cho web che link)
             if (!isMatch) {
-                let textToSearch = a.innerText.toLowerCase() + " " + a.href.toLowerCase();
-                let escapedTarget = rawTargetUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                let regex = new RegExp('(^|[^a-z0-9])' + escapedTarget + '([^a-z0-9]|$)', 'i');
-
-                if (regex.test(textToSearch)) {
-                    isMatch = true;
+                let resultBlock = a.closest('.g, .xpd, .F9iR2e, .Ww4FFb') || a;
+                let visualElements = resultBlock.querySelectorAll('cite, .VuuXrf');
+                
+                if (visualElements.length > 0) {
+                    for (let el of visualElements) {
+                        let domainOnly = (el.innerText || "").split(/[›>]/)[0].toLowerCase().trim().replace(/ /g, '').split('.')[0];
+                        
+                        if (isFlexibleMatch(domainOnly, cleanTarget)) {
+                            isMatch = true;
+                            break;
+                        }
+                    }
                 }
             }
             
@@ -381,7 +438,7 @@
             foundLink.style.borderRadius = "8px";
             
             startBtn.innerText = `Tìm thấy ở trang ${currentPage}!`;
-            startBtn.style.background = '#10b981'; // Xanh lá cây
+            startBtn.style.background = '#10b981'; 
             
             foundLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
@@ -394,7 +451,7 @@
         } else {
             if (currentPage >= MAX_PAGES) {
                 startBtn.innerText = `Không thấy sau ${MAX_PAGES} trang.`;
-                startBtn.style.background = '#ef4444'; // Đỏ
+                startBtn.style.background = '#ef4444'; 
                 GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
                 setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 return;
@@ -425,7 +482,7 @@
                     nextBtn.click();
                 } else {
                     startBtn.innerText = "Hết kết quả từ Google.";
-                    startBtn.style.background = '#ef4444'; // Đỏ
+                    startBtn.style.background = '#ef4444'; 
                     GM_setValue('as_isRunning', false); GM_setValue('as_keyword', ''); GM_setValue('as_targetUrl', ''); GM_setValue('as_currentPage', 1);
                     setTimeout(() => { window.location.href = window.location.origin; }, 1500);
                 }
