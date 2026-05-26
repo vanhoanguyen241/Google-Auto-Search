@@ -6,6 +6,8 @@
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
+// @downloadURL  https://raw.githubusercontent.com/vanhoanguyen241/Google-Auto-Search/main/GoogleAutoSearch.user.js
+// @updateURL    https://raw.githubusercontent.com/vanhoanguyen241/Google-Auto-Search/main/GoogleAutoSearch.user.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
