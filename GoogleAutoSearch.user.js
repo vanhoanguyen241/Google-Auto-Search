@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto Search
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
-// @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes
+// @version      2.1.0
+// @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes, Resume/Cancel feature
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -179,8 +179,14 @@
                 #as-panel input, #as-panel select { padding: 10px; background: #111827; color: #f9fafb; border: 1px solid #374151; border-radius: 8px; width: 100%; outline: none; box-sizing: border-box; font-size: 14px; }
                 #as-panel input:focus, #as-panel select:focus { border-color: #3b82f6; }
                 #as-panel select { cursor: pointer; }
+                
+                /* Container cho các nút để chống xê lệch UI */
+                .as-btn-group { display: flex; gap: 8px; width: 100%; }
+                .as-btn-group button { flex: 1; margin-top: 0 !important; }
+                
                 #as-panel button { padding: 10px; cursor: pointer; border: none; border-radius: 8px; font-weight: 600; transition: all 0.2s ease; margin-top: 4px; }
                 .as-btn-primary { background: #3b82f6; color: white; } .as-btn-primary:hover:not(:disabled) { background: #2563eb; }
+                .as-btn-success { background: #10b981; color: white; } .as-btn-success:hover { background: #059669; }
                 .as-btn-danger { background: #ef4444; color: white; } .as-btn-danger:hover { background: #dc2626; }
                 .as-btn-secondary { background: #374151; color: #d1d5db; } .as-btn-secondary:hover { background: #4b5563; color: white; }
                 #as-panel button:disabled { background: #4b5563 !important; color: #9ca3af !important; cursor: not-allowed; }
@@ -205,9 +211,12 @@
                     <option value="exact">Chế độ: Chuẩn xác</option>
                     <option value="fuzzy">Chế độ: Tương đối</option>
                 </select>
-                <button id="as-start-btn" class="as-btn-primary">Bắt đầu tìm</button>
-                <button id="as-stop-btn" class="as-btn-danger" style="display: none;">Dừng tìm</button>
-                <button id="as-clear-btn" class="as-btn-secondary">Làm mới</button>
+                <div class="as-btn-group">
+                    <button id="as-start-btn" class="as-btn-primary">Bắt đầu</button>
+                    <button id="as-resume-btn" class="as-btn-success" style="display: none;">Tiếp tục</button>
+                    <button id="as-stop-btn" class="as-btn-danger" style="display: none;">Dừng</button>
+                </div>
+                <button id="as-cancel-btn" class="as-btn-secondary">Huỷ & Trở về trang chủ</button>
             `;
 
             document.body.append(this.bubble, this.panel);
@@ -217,8 +226,9 @@
                 url: document.getElementById('as-url'),
                 matchMode: document.getElementById('as-match-mode'),
                 startBtn: document.getElementById('as-start-btn'),
+                resumeBtn: document.getElementById('as-resume-btn'),
                 stopBtn: document.getElementById('as-stop-btn'),
-                clearBtn: document.getElementById('as-clear-btn'),
+                cancelBtn: document.getElementById('as-cancel-btn'),
                 closeBtn: document.getElementById('as-close-btn')
             };
 
@@ -285,18 +295,39 @@
                 this.toggleMenu(false);
             });
 
-            this.els.clearBtn.addEventListener('click', () => {
-                this.els.keyword.value = ''; this.els.url.value = '';
-                State.keyword = ''; State.targetUrl = '';
+            // Nút Huỷ / Reset
+            this.els.cancelBtn.addEventListener('click', () => {
+                if (confirm("Bạn có chắc chắn muốn huỷ tiến trình, xoá dữ liệu và quay lại trang chủ Google?")) {
+                    State.clear();
+                    window.location.href = "https://www.google.com";
+                }
             });
 
+            // Logic Dừng
             this.els.stopBtn.addEventListener('click', () => {
                 State.isRunning = false;
                 clearTimeout(this.runTimer);
-                this.els.startBtn.innerText = "Đã dừng tìm kiếm";
-                this.els.startBtn.style.background = '#757575';
+                
+                // Cập nhật UI sang trạng thái "Tạm Dừng"
                 this.els.stopBtn.style.display = 'none';
-                setTimeout(() => this.resetButtons(), 2000);
+                this.els.startBtn.style.display = 'none';
+                this.els.resumeBtn.style.display = 'block';
+                this.els.resumeBtn.innerText = "Tiếp tục tìm";
+            });
+
+            // Logic Tiếp tục
+            this.els.resumeBtn.addEventListener('click', () => {
+                State.isRunning = true;
+                
+                // Trả UI về trạng thái "Đang Tìm"
+                this.els.resumeBtn.style.display = 'none';
+                this.els.startBtn.style.display = 'block';
+                this.els.stopBtn.style.display = 'block';
+                
+                this.els.startBtn.disabled = true;
+                this.els.startBtn.innerText = `Đang quét tiếp trang ${State.currentPage}...`;
+                
+                this.scanPage();
             });
 
             this.els.startBtn.addEventListener('click', () => this.handleStartSearch());
@@ -373,10 +404,13 @@
         }
 
         resetButtons() {
+            this.els.startBtn.style.display = 'block';
             this.els.startBtn.innerText = "Bắt đầu tìm";
             this.els.startBtn.disabled = false;
             this.els.startBtn.className = "as-btn-primary";
             this.els.startBtn.style.background = ''; 
+            
+            this.els.resumeBtn.style.display = 'none';
             this.els.stopBtn.style.display = 'none';
         }
 
@@ -391,6 +425,7 @@
 
             this.els.startBtn.innerText = "Đang ping URL...";
             this.els.startBtn.disabled = true;
+            this.els.stopBtn.style.display = 'block';
 
             const execute = async () => {
                 this.els.startBtn.innerText = "Đang gõ từ khóa...";
@@ -419,6 +454,7 @@
         checkResumeState() {
             if (State.isRunning) {
                 this.toggleMenu(true);
+                this.els.startBtn.style.display = 'block';
                 this.els.startBtn.disabled = true;
                 this.els.startBtn.innerText = `Đang quét trang ${State.currentPage}...`;
                 this.els.stopBtn.style.display = 'block';
@@ -473,6 +509,7 @@
             if (foundLink) {
                 State.isRunning = false;
                 this.els.stopBtn.style.display = 'none';
+                this.els.startBtn.style.display = 'block';
                 this.els.startBtn.innerText = `Tìm thấy ở trang ${State.currentPage}!`;
                 this.els.startBtn.style.background = '#10b981';
                 Automator.highlightAndClick(foundLink);
@@ -522,6 +559,7 @@
         }
 
         terminateScan(msg) {
+            this.els.startBtn.style.display = 'block';
             this.els.startBtn.innerText = msg;
             this.els.startBtn.style.background = '#ef4444'; 
             this.els.stopBtn.style.display = 'none';
