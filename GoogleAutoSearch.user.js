@@ -435,6 +435,7 @@
             
             Automator.humanScroll(() => {
                 let nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"]');
+                let isDynamicLoad = false; // Cờ đánh dấu phương thức tải của Mobile
                 
                 if (!nextBtn) {
                     const els = document.querySelectorAll('div[role="button"], a, button, span');
@@ -442,6 +443,7 @@
                         const text = el.innerText?.toLowerCase() || '';
                         if (['kết quả tìm kiếm khác', 'more search results', 'xem thêm'].some(t => text.includes(t)) && el.offsetParent !== null) {
                             nextBtn = el.closest('a, button, div[role="button"]') || el;
+                            isDynamicLoad = true; // Nếu tìm thấy nút này, đích thị là Mobile
                             break;
                         }
                     }
@@ -450,6 +452,16 @@
                 if (nextBtn) {
                     State.currentPage += 1;
                     nextBtn.click();
+
+                    if (isDynamicLoad) {
+                        // XỬ LÝ RIÊNG CHO MOBILE: Đợi kết quả render rồi quét lại luôn
+                        this.els.startBtn.innerText = `Đang tải thêm kết quả...`;
+                        setTimeout(() => {
+                            // Gọi lại scanPage sau 2.5s (chờ mạng và DOM cập nhật)
+                            this.scanPage(); 
+                        }, 2500); 
+                    }
+                    // Nếu là PC (isDynamicLoad = false), trang sẽ tự reload và chạy lại từ đầu nhờ State
                 } else {
                     this.terminateScan("Hết kết quả từ Google.");
                 }
