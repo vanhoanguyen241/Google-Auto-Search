@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Auto-Search & Scraper (Final)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.0
+// @version      1.9.1
 // @description  Modern Dark UI, Modular Architecture, Dual-Pass Matching (Exact > Fuzzy)
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
@@ -171,7 +171,10 @@
             style.textContent = `
                 #as-bubble { position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: grab; z-index: 999999; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); user-select: none; transition: transform 0.15s ease, box-shadow 0.15s ease; }
                 #as-bubble:hover { transform: scale(1.05); } #as-bubble:active { cursor: grabbing; transform: scale(0.95); }
-                #as-panel { position: fixed; bottom: 80px; right: 20px; width: 320px; max-width: 90vw; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 16px; padding: 20px; z-index: 999998; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 14px; font-family: -apple-system, sans-serif; }
+                #as-panel { 
+                    position: fixed; width: 320px; max-width: 90vw; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 16px; padding: 20px; z-index: 999998; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 14px; font-family: -apple-system, sans-serif;
+                    transition: top 0.2s ease-out, left 0.2s ease-out; 
+                }
                 #as-panel h4 { margin: 0; font-size: 16px; font-weight: 600; }
                 #as-panel input { padding: 12px; background: #111827; color: #f9fafb; border: 1px solid #374151; border-radius: 8px; width: 100%; outline: none; box-sizing: border-box; }
                 #as-panel input:focus { border-color: #3b82f6; }
@@ -288,6 +291,22 @@
             });
 
             this.els.startBtn.addEventListener('click', () => this.handleStartSearch());
+
+            // Xử lý động khi bàn phím ảo di chuyển, bật/tắt hoặc trình duyệt cuộn trang
+            if (window.visualViewport) {
+                let isPending = false;
+                const updatePos = () => {
+                    if (!isPending) {
+                        isPending = true;
+                        requestAnimationFrame(() => {
+                            this.updatePanelPosition();
+                            isPending = false;
+                        });
+                    }
+                };
+                window.visualViewport.addEventListener('resize', updatePos);
+                window.visualViewport.addEventListener('scroll', updatePos);
+            }
         }
 
         restorePositions() {
@@ -303,18 +322,46 @@
             this.bubble.style.cssText += `left: ${this.dragState.xOffset}px; top: ${this.dragState.yOffset}px; right: auto; bottom: auto;`;
         }
 
+        updatePanelPosition() {
+            if (this.panel.style.display !== 'flex') return;
+
+            const pW = this.panel.offsetWidth || 320;
+            const pH = this.panel.offsetHeight || 250;
+            
+            // Lấy thông số Visual Viewport thực tế
+            const vW = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+            const vH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+            
+            // QUAN TRỌNG: Lấy thêm độ lệch (scroll/pan) của trình duyệt khi bàn phím xuất hiện
+            const vX = window.visualViewport ? window.visualViewport.pageLeft || window.visualViewport.offsetLeft : 0;
+            const vY = window.visualViewport ? window.visualViewport.pageTop || window.visualViewport.offsetTop : 0;
+
+            // Tính toán vị trí mong muốn (bám sát bong bóng ban đầu)
+            let left = this.dragState.xOffset < (vW / 2) 
+                ? this.dragState.xOffset + this.BUBBLE_SIZE + 10 
+                : this.dragState.xOffset - pW - 10;
+                
+            let top = this.dragState.yOffset < (vH / 2) 
+                ? this.dragState.yOffset 
+                : this.dragState.yOffset + this.BUBBLE_SIZE - pH;
+
+            // Ép tọa độ nằm gọn trong khung nhìn thấy HIỆN TẠI (tính cả độ cuộn vX, vY)
+            left = Math.max(vX + 10, Math.min(vX + vW - pW - 10, left));
+            top = Math.max(vY + 10, Math.min(vY + vH - pH - 10, top));
+
+            this.panel.style.left = `${left}px`;
+            this.panel.style.top = `${top}px`;
+            this.panel.style.bottom = 'auto'; 
+            this.panel.style.right = 'auto';
+            this.panel.style.transform = 'none';
+        }
+
         toggleMenu(show) {
             this.panel.style.display = show ? 'flex' : 'none';
             this.bubble.style.display = show ? 'none' : 'flex';
 
             if (show) {
-                const pW = this.panel.offsetWidth, pH = this.panel.offsetHeight;
-                const left = this.dragState.xOffset < window.innerWidth / 2 ? this.dragState.xOffset + this.BUBBLE_SIZE + 10 : this.dragState.xOffset - pW - 10;
-                const top = this.dragState.xOffset < window.innerHeight / 2 ? this.dragState.yOffset : this.dragState.yOffset + this.BUBBLE_SIZE - pH;
-                
-                this.panel.style.left = `${Math.max(10, Math.min(window.innerWidth - pW - 10, left))}px`;
-                this.panel.style.top = `${Math.max(10, Math.min(window.innerHeight - pH - 10, top))}px`;
-                this.panel.style.bottom = 'auto'; this.panel.style.right = 'auto';
+                this.updatePanelPosition();
             } else {
                 this.bubble.style.left = `${this.dragState.xOffset}px`;
                 this.bubble.style.top = `${this.dragState.yOffset}px`;
@@ -435,7 +482,7 @@
             
             Automator.humanScroll(() => {
                 let nextBtn = document.querySelector('#pnnext, a[aria-label="Tiếp theo"], a[aria-label="Next page"]');
-                let isDynamicLoad = false; // Cờ đánh dấu phương thức tải của Mobile
+                let isDynamicLoad = false;
                 
                 if (!nextBtn) {
                     const els = document.querySelectorAll('div[role="button"], a, button, span');
@@ -443,7 +490,7 @@
                         const text = el.innerText?.toLowerCase() || '';
                         if (['kết quả tìm kiếm khác', 'more search results', 'xem thêm'].some(t => text.includes(t)) && el.offsetParent !== null) {
                             nextBtn = el.closest('a, button, div[role="button"]') || el;
-                            isDynamicLoad = true; // Nếu tìm thấy nút này, đích thị là Mobile
+                            isDynamicLoad = true;
                             break;
                         }
                     }
@@ -454,14 +501,11 @@
                     nextBtn.click();
 
                     if (isDynamicLoad) {
-                        // XỬ LÝ RIÊNG CHO MOBILE: Đợi kết quả render rồi quét lại luôn
                         this.els.startBtn.innerText = `Đang tải thêm kết quả...`;
                         setTimeout(() => {
-                            // Gọi lại scanPage sau 2.5s (chờ mạng và DOM cập nhật)
                             this.scanPage(); 
                         }, 2500); 
                     }
-                    // Nếu là PC (isDynamicLoad = false), trang sẽ tự reload và chạy lại từ đầu nhờ State
                 } else {
                     this.terminateScan("Hết kết quả từ Google.");
                 }
