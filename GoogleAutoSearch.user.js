@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Google Auto-Search & Scraper (Final)
+// @name         Google Auto Search
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
-// @description  Modern Dark UI, Modular Architecture, Dual-Pass Matching (Exact > Fuzzy)
+// @version      2.0.0
+// @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -10,8 +10,6 @@
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
 // @connect      *
-// @updateURL    https://raw.githubusercontent.com/vanhoanguyen241/Google-Auto-Search/main/GoogleAutoSearch.user.js
-// @downloadURL  https://raw.githubusercontent.com/vanhoanguyen241/Google-Auto-Search/main/GoogleAutoSearch.user.js
 // ==/UserScript==
 
 (function () {
@@ -29,6 +27,8 @@
         set keyword(val) { GM_setValue('as_keyword', val); },
         get targetUrl() { return GM_getValue('as_targetUrl', ''); },
         set targetUrl(val) { GM_setValue('as_targetUrl', val); },
+        get matchMode() { return GM_getValue('as_matchMode', 'exact'); },
+        set matchMode(val) { GM_setValue('as_matchMode', val); },
         get currentPage() { return GM_getValue('as_currentPage', 1); },
         set currentPage(val) { GM_setValue('as_currentPage', val); },
         get pos() { return GM_getValue('as_bubble_pos', null); },
@@ -62,7 +62,7 @@
     };
 
     /* ==========================================
-       MODULE 3: CORE MATCHER (Thuật toán khớp)
+       MODULE 3: CORE MATCHER
        ========================================== */
     const Matcher = {
         getSimilarity(a, b) {
@@ -169,21 +169,22 @@
         injectStyles() {
             const style = document.createElement('style');
             style.textContent = `
-                #as-bubble { position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: grab; z-index: 999999; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); user-select: none; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+                #as-bubble { position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; cursor: grab; z-index: 999999; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); user-select: none; transition: transform 0.15s ease, box-shadow 0.15s ease; }
                 #as-bubble:hover { transform: scale(1.05); } #as-bubble:active { cursor: grabbing; transform: scale(0.95); }
                 #as-panel { 
-                    position: fixed; width: 320px; max-width: 90vw; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 16px; padding: 20px; z-index: 999998; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 14px; font-family: -apple-system, sans-serif;
+                    position: fixed; width: 320px; max-width: 90vw; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 16px; padding: 20px; z-index: 999998; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 12px; font-family: -apple-system, sans-serif;
                     transition: top 0.2s ease-out, left 0.2s ease-out; 
                 }
                 #as-panel h4 { margin: 0; font-size: 16px; font-weight: 600; }
-                #as-panel input { padding: 12px; background: #111827; color: #f9fafb; border: 1px solid #374151; border-radius: 8px; width: 100%; outline: none; box-sizing: border-box; }
-                #as-panel input:focus { border-color: #3b82f6; }
-                #as-panel button { padding: 10px; cursor: pointer; border: none; border-radius: 8px; font-weight: 600; transition: all 0.2s ease; }
+                #as-panel input, #as-panel select { padding: 10px; background: #111827; color: #f9fafb; border: 1px solid #374151; border-radius: 8px; width: 100%; outline: none; box-sizing: border-box; font-size: 14px; }
+                #as-panel input:focus, #as-panel select:focus { border-color: #3b82f6; }
+                #as-panel select { cursor: pointer; }
+                #as-panel button { padding: 10px; cursor: pointer; border: none; border-radius: 8px; font-weight: 600; transition: all 0.2s ease; margin-top: 4px; }
                 .as-btn-primary { background: #3b82f6; color: white; } .as-btn-primary:hover:not(:disabled) { background: #2563eb; }
                 .as-btn-danger { background: #ef4444; color: white; } .as-btn-danger:hover { background: #dc2626; }
                 .as-btn-secondary { background: #374151; color: #d1d5db; } .as-btn-secondary:hover { background: #4b5563; color: white; }
                 #as-panel button:disabled { background: #4b5563 !important; color: #9ca3af !important; cursor: not-allowed; }
-                #as-close-btn { position: absolute; top: 16px; right: 16px; background: transparent; color: #9ca3af; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 18px; } #as-close-btn:hover { color: #ef4444; }
+                #as-close-btn { position: absolute; top: 16px; right: 16px; background: transparent; color: #9ca3af; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 20px; padding: 0; margin: 0; } #as-close-btn:hover { color: #ef4444; }
             `;
             document.head.appendChild(style);
         }
@@ -191,15 +192,19 @@
         buildDOM() {
             this.bubble = document.createElement('div');
             this.bubble.id = 'as-bubble';
-            this.bubble.innerHTML = '🔍';
+            this.bubble.innerHTML = 'Auto';
 
             this.panel = document.createElement('div');
             this.panel.id = 'as-panel';
             this.panel.innerHTML = `
-                <button id="as-close-btn" title="Thu nhỏ">-</button>
+                <button id="as-close-btn" title="Thu nhỏ">×</button>
                 <h4>Auto Search</h4>
                 <input type="text" id="as-keyword" placeholder="Nhập từ khóa...">
-                <input type="text" id="as-url" placeholder="Nhập URL / Tên web che link">
+                <input type="text" id="as-url" placeholder="Nhập URL / Tên miền...">
+                <select id="as-match-mode">
+                    <option value="exact">Chế độ: Chuẩn xác</option>
+                    <option value="fuzzy">Chế độ: Tương đối</option>
+                </select>
                 <button id="as-start-btn" class="as-btn-primary">Bắt đầu tìm</button>
                 <button id="as-stop-btn" class="as-btn-danger" style="display: none;">Dừng tìm</button>
                 <button id="as-clear-btn" class="as-btn-secondary">Làm mới</button>
@@ -210,6 +215,7 @@
             this.els = {
                 keyword: document.getElementById('as-keyword'),
                 url: document.getElementById('as-url'),
+                matchMode: document.getElementById('as-match-mode'),
                 startBtn: document.getElementById('as-start-btn'),
                 stopBtn: document.getElementById('as-stop-btn'),
                 clearBtn: document.getElementById('as-clear-btn'),
@@ -218,10 +224,14 @@
 
             this.els.keyword.value = State.keyword;
             this.els.url.value = State.targetUrl;
+            this.els.matchMode.value = State.matchMode;
         }
 
         bindEvents() {
-            // Drag logic
+            this.els.matchMode.addEventListener('change', (e) => {
+                State.matchMode = e.target.value;
+            });
+
             const startDrag = (e) => {
                 if (e.type === 'mousedown' && e.button !== 0) return;
                 const coords = Utils.getPointerCoords(e);
@@ -269,7 +279,6 @@
             this.panel.addEventListener('mousedown', e => e.stopPropagation());
             this.panel.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
 
-            // Button actions
             this.els.closeBtn.addEventListener('click', () => {
                 if (State.isRunning) { State.isRunning = false; clearTimeout(this.runTimer); }
                 this.resetButtons();
@@ -292,7 +301,6 @@
 
             this.els.startBtn.addEventListener('click', () => this.handleStartSearch());
 
-            // Xử lý động khi bàn phím ảo di chuyển, bật/tắt hoặc trình duyệt cuộn trang
             if (window.visualViewport) {
                 let isPending = false;
                 const updatePos = () => {
@@ -326,17 +334,14 @@
             if (this.panel.style.display !== 'flex') return;
 
             const pW = this.panel.offsetWidth || 320;
-            const pH = this.panel.offsetHeight || 250;
+            const pH = this.panel.offsetHeight || 280;
             
-            // Lấy thông số Visual Viewport thực tế
             const vW = window.visualViewport ? window.visualViewport.width : window.innerWidth;
             const vH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
             
-            // QUAN TRỌNG: Lấy thêm độ lệch (scroll/pan) của trình duyệt khi bàn phím xuất hiện
             const vX = window.visualViewport ? window.visualViewport.pageLeft || window.visualViewport.offsetLeft : 0;
             const vY = window.visualViewport ? window.visualViewport.pageTop || window.visualViewport.offsetTop : 0;
 
-            // Tính toán vị trí mong muốn (bám sát bong bóng ban đầu)
             let left = this.dragState.xOffset < (vW / 2) 
                 ? this.dragState.xOffset + this.BUBBLE_SIZE + 10 
                 : this.dragState.xOffset - pW - 10;
@@ -345,7 +350,6 @@
                 ? this.dragState.yOffset 
                 : this.dragState.yOffset + this.BUBBLE_SIZE - pH;
 
-            // Ép tọa độ nằm gọn trong khung nhìn thấy HIỆN TẠI (tính cả độ cuộn vX, vY)
             left = Math.max(vX + 10, Math.min(vX + vW - pW - 10, left));
             top = Math.max(vY + 10, Math.min(vY + vH - pH - 10, top));
 
@@ -380,8 +384,10 @@
             const keyword = this.els.keyword.value.trim();
             const targetUrl = this.els.url.value.trim();
 
-            if (!keyword || !targetUrl) return alert("Nhập đủ thông tin!");
-            const finalUrl = /^https?:\/\//i.test(targetUrl) ? targetUrl : 'https://' + targetUrl;
+            if (!keyword || !targetUrl) return alert("Vui lòng nhập đủ thông tin!");
+            
+            const cleanTarget = Utils.cleanDomain(targetUrl);
+            const finalUrl = `https://${cleanTarget}`;
 
             this.els.startBtn.innerText = "Đang ping URL...";
             this.els.startBtn.disabled = true;
@@ -389,11 +395,11 @@
             const execute = async () => {
                 this.els.startBtn.innerText = "Đang gõ từ khóa...";
                 const searchBox = document.querySelector('textarea[name="q"], input[name="q"]');
-                if (!searchBox) return alert("Không tìm thấy thanh tìm kiếm!");
+                if (!searchBox) return alert("Không tìm thấy thanh tìm kiếm Google!");
                 
                 await Automator.simulateTyping(keyword, searchBox);
                 await Utils.sleep(Utils.randomInt(500, 1000));
-                Automator.triggerSearch(keyword, Utils.cleanDomain(finalUrl), searchBox);
+                Automator.triggerSearch(keyword, cleanTarget, searchBox);
             };
 
             GM_xmlhttpRequest({
@@ -405,8 +411,8 @@
                         execute();
                     } else this.resetButtons();
                 },
-                onerror: () => confirm(`Lỗi mạng. Bỏ qua và tiếp tục?`) ? execute() : this.resetButtons(),
-                ontimeout: () => confirm(`Ping Timeout. Bỏ qua và tiếp tục?`) ? execute() : this.resetButtons()
+                onerror: () => confirm(`Lỗi mạng/CORS khi ping URL. Bỏ qua và tiếp tục tìm kiếm?`) ? execute() : this.resetButtons(),
+                ontimeout: () => confirm(`Ping Timeout. Bỏ qua và tiếp tục tìm kiếm?`) ? execute() : this.resetButtons()
             });
         }
 
@@ -423,43 +429,46 @@
         scanPage() {
             if (!State.isRunning) return;
 
-            const cleanTargetFull = State.targetUrl;
-            const fuzzyTarget = cleanTargetFull.split('.')[0];
-            const MAX_PAGES = 10;
+            const mode = State.matchMode;
+            const rawTarget = State.targetUrl.toLowerCase().trim();
+            const cleanInput = Utils.cleanDomain(rawTarget);
+            const inputNoExt = cleanInput.split('.')[0];
 
+            const MAX_PAGES = 10;
             const links = Array.from(document.querySelectorAll('#search a[href^="http"], #rso a[href^="http"]')).filter(a => !a.href.includes('google.'));
                 
-            let exactMatchLink = null, fuzzyMatchLink = null;
+            let foundLink = null;
 
             for (let a of links) {
                 const linkHost = Utils.cleanDomain(a.href);
 
-                // Ưu tiên 1: Exact Match
-                if (linkHost === cleanTargetFull || linkHost.endsWith(`.${cleanTargetFull}`) || linkHost.startsWith(`${cleanTargetFull}.`)) {
-                    exactMatchLink = a;
-                    break;
-                }
+                if (mode === 'exact') {
+                    if (linkHost === cleanInput || linkHost.startsWith(`${cleanInput}.`)) {
+                        foundLink = a;
+                        break;
+                    }
+                } else if (mode === 'fuzzy') {
+                    if (linkHost.includes(cleanInput)) {
+                        foundLink = a;
+                        break;
+                    }
 
-                // Ưu tiên 2: Fuzzy Match
-                if (!exactMatchLink && !fuzzyMatchLink) {
                     const hostMain = linkHost.split('.')[0];
-                    if (Matcher.isFlexibleMatch(hostMain, fuzzyTarget)) {
-                        fuzzyMatchLink = a;
-                        continue;
+                    if (Matcher.isFlexibleMatch(hostMain, inputNoExt)) {
+                        foundLink = a;
+                        break;
                     }
 
                     const visualElements = (a.closest('.g, .xpd, .F9iR2e, .Ww4FFb') || a).querySelectorAll('cite, .VuuXrf');
                     for (let el of visualElements) {
                         const domainOnly = (el.innerText || "").split(/[›>]/)[0].toLowerCase().trim().replace(/ /g, '').split('.')[0];
-                        if (domainOnly.length <= fuzzyTarget.length * 3 && Matcher.isFlexibleMatch(domainOnly, fuzzyTarget)) {
-                            fuzzyMatchLink = a;
+                        if (domainOnly.length <= inputNoExt.length * 3 && Matcher.isFlexibleMatch(domainOnly, inputNoExt)) {
+                            foundLink = a;
                             break;
                         }
                     }
                 }
             }
-            
-            const foundLink = exactMatchLink || fuzzyMatchLink;
             
             if (foundLink) {
                 State.isRunning = false;
@@ -521,7 +530,6 @@
         }
     }
 
-    // --- Khởi tạo Ứng dụng ---
     const app = new UIManager();
     window.addEventListener('load', () => app.init());
 
