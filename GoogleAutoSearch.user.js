@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Google Auto Search
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
-// @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes, Resume/Cancel feature
+// @version      2.2.0
+// @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes, Resume/Cancel, Dynamic Max Pages
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
 // @match        *://www.google.com.vn/*
@@ -29,6 +29,8 @@
         set targetUrl(val) { GM_setValue('as_targetUrl', val); },
         get matchMode() { return GM_getValue('as_matchMode', 'exact'); },
         set matchMode(val) { GM_setValue('as_matchMode', val); },
+        get maxPages() { return GM_getValue('as_maxPages', 10); },
+        set maxPages(val) { GM_setValue('as_maxPages', val); },
         get currentPage() { return GM_getValue('as_currentPage', 1); },
         set currentPage(val) { GM_setValue('as_currentPage', val); },
         get pos() { return GM_getValue('as_bubble_pos', null); },
@@ -180,7 +182,9 @@
                 #as-panel input:focus, #as-panel select:focus { border-color: #3b82f6; }
                 #as-panel select { cursor: pointer; }
                 
-                /* Container cho các nút để chống xê lệch UI */
+                /* Layout tối ưu */
+                .as-row { display: flex; gap: 8px; width: 100%; }
+                .as-row > * { flex: 1; min-width: 0; }
                 .as-btn-group { display: flex; gap: 8px; width: 100%; }
                 .as-btn-group button { flex: 1; margin-top: 0 !important; }
                 
@@ -207,10 +211,15 @@
                 <h4>Auto Search</h4>
                 <input type="text" id="as-keyword" placeholder="Nhập từ khóa...">
                 <input type="text" id="as-url" placeholder="Nhập URL / Tên miền...">
-                <select id="as-match-mode">
-                    <option value="exact">Chế độ: Chuẩn xác</option>
-                    <option value="fuzzy">Chế độ: Tương đối</option>
-                </select>
+                
+                <div class="as-row">
+                    <select id="as-match-mode" title="Chế độ khớp URL">
+                        <option value="exact">Chuẩn xác</option>
+                        <option value="fuzzy">Tương đối</option>
+                    </select>
+                    <input type="number" id="as-max-pages" placeholder="Trang tối đa" min="1" max="999" title="Số trang tối đa sẽ quét (Mặc định: 10)">
+                </div>
+
                 <div class="as-btn-group">
                     <button id="as-start-btn" class="as-btn-primary">Bắt đầu</button>
                     <button id="as-resume-btn" class="as-btn-success" style="display: none;">Tiếp tục</button>
@@ -225,6 +234,7 @@
                 keyword: document.getElementById('as-keyword'),
                 url: document.getElementById('as-url'),
                 matchMode: document.getElementById('as-match-mode'),
+                maxPages: document.getElementById('as-max-pages'),
                 startBtn: document.getElementById('as-start-btn'),
                 resumeBtn: document.getElementById('as-resume-btn'),
                 stopBtn: document.getElementById('as-stop-btn'),
@@ -232,14 +242,21 @@
                 closeBtn: document.getElementById('as-close-btn')
             };
 
+            // Load saved configurations
             this.els.keyword.value = State.keyword;
             this.els.url.value = State.targetUrl;
             this.els.matchMode.value = State.matchMode;
+            this.els.maxPages.value = State.maxPages;
         }
 
         bindEvents() {
             this.els.matchMode.addEventListener('change', (e) => {
                 State.matchMode = e.target.value;
+            });
+
+            this.els.maxPages.addEventListener('input', (e) => {
+                let val = parseInt(e.target.value);
+                if (val > 0) State.maxPages = val;
             });
 
             const startDrag = (e) => {
@@ -308,7 +325,6 @@
                 State.isRunning = false;
                 clearTimeout(this.runTimer);
                 
-                // Cập nhật UI sang trạng thái "Tạm Dừng"
                 this.els.stopBtn.style.display = 'none';
                 this.els.startBtn.style.display = 'none';
                 this.els.resumeBtn.style.display = 'block';
@@ -319,7 +335,6 @@
             this.els.resumeBtn.addEventListener('click', () => {
                 State.isRunning = true;
                 
-                // Trả UI về trạng thái "Đang Tìm"
                 this.els.resumeBtn.style.display = 'none';
                 this.els.startBtn.style.display = 'block';
                 this.els.stopBtn.style.display = 'block';
@@ -417,8 +432,10 @@
         handleStartSearch() {
             const keyword = this.els.keyword.value.trim();
             const targetUrl = this.els.url.value.trim();
+            const maxPgs = parseInt(this.els.maxPages.value);
 
             if (!keyword || !targetUrl) return alert("Vui lòng nhập đủ thông tin!");
+            if (!maxPgs || maxPgs <= 0) return alert("Vui lòng nhập số trang tối đa hợp lệ (> 0)!");
             
             const cleanTarget = Utils.cleanDomain(targetUrl);
             const finalUrl = `https://${cleanTarget}`;
@@ -470,7 +487,9 @@
             const cleanInput = Utils.cleanDomain(rawTarget);
             const inputNoExt = cleanInput.split('.')[0];
 
-            const MAX_PAGES = 10;
+            // Lấy thông số trang tối đa ĐỘNG từ biến State
+            const MAX_PAGES = parseInt(State.maxPages) || 10;
+
             const links = Array.from(document.querySelectorAll('#search a[href^="http"], #rso a[href^="http"]')).filter(a => !a.href.includes('google.'));
                 
             let foundLink = null;
