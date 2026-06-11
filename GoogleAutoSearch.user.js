@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Auto Search
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.2.1
 // @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes, Resume/Cancel, Dynamic Max Pages
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
@@ -500,7 +500,7 @@
                 const linkHost = Utils.cleanDomain(a.href);
 
                 if (mode === 'exact') {
-                    if (linkHost === cleanInput || linkHost.startsWith(`${cleanInput}.`)) {
+                    if (linkHost === cleanInput || linkHost.endsWith(`.${cleanInput}`)) {
                         foundLink = a;
                         break;
                     }
