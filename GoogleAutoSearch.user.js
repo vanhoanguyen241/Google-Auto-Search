@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Auto Search
 // @namespace    http://tampermonkey.net/
-// @version      2.2.1
+// @version      2.2.2
 // @description  Modern Dark UI, Explicit Exact/Fuzzy Matching Modes, Resume/Cancel, Dynamic Max Pages
 // @author       Nguyễn Văn Hòa
 // @match        *://www.google.com/*
@@ -489,18 +489,40 @@
             const cleanInput = Utils.cleanDomain(rawTarget);
             const inputNoExt = cleanInput.split('.')[0];
 
-            // Lấy thông số trang tối đa ĐỘNG từ biến State
             const MAX_PAGES = parseInt(State.maxPages) || 10;
 
-            const links = Array.from(document.querySelectorAll('#search a[href^="http"], #rso a[href^="http"]')).filter(a => !a.href.includes('google.'));
+            // 1. Mở rộng vùng quét và BỎ bộ lọc filter() gây lỗi mất kết quả
+            const rawLinks = Array.from(document.querySelectorAll('#main a[href^="http"], #search a[href^="http"], #rso a[href^="http"]'));
                 
             let foundLink = null;
 
-            for (let a of links) {
-                const linkHost = Utils.cleanDomain(a.href);
+            for (let a of rawLinks) {
+                let actualUrl = a.href;
+                
+                // 2. GIẢI MÃ: Bóc tách URL thật nếu bị Google bọc bằng link tracking redirect (/url?q=)
+                if (actualUrl.includes('google.') && (actualUrl.includes('/url?') || actualUrl.includes('/url'))) {
+                    try {
+                        const urlObj = new URL(actualUrl);
+                        actualUrl = urlObj.searchParams.get('q') || urlObj.searchParams.get('url') || actualUrl;
+                    } catch (e) {}
+                }
+
+                // 3. Chỉ loại bỏ các link dịch vụ nội bộ của Google SAU KHI đã bóc tách
+                if (Utils.cleanDomain(actualUrl).includes('google.')) continue;
+
+                const linkHost = Utils.cleanDomain(actualUrl);
+
+                // 4. FALLBACK MẠNH MẼ: Lấy tên miền hiển thị trực quan (chữ màu xám/xanh trên UI Google)
+                let visualDomain = "";
+                const citeEl = (a.closest('.g, .xpd, .F9iR2e, .Ww4FFb') || a).querySelector('cite, .VuuXrf');
+                if (citeEl) {
+                    visualDomain = citeEl.innerText.split(/[›>]/)[0].toLowerCase().trim().replace(/ /g, '').replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+                }
 
                 if (mode === 'exact') {
-                    if (linkHost === cleanInput || linkHost.endsWith(`.${cleanInput}`)) {
+                    // CẢI TIẾN: Khớp linkHost (href) HOẶC khớp visualDomain (mắt nhìn thấy)
+                    if (linkHost === cleanInput || linkHost.endsWith(`.${cleanInput}`) || 
+                        (visualDomain && (visualDomain === cleanInput || visualDomain.endsWith(`.${cleanInput}`)))) {
                         foundLink = a;
                         break;
                     }
@@ -516,13 +538,11 @@
                         break;
                     }
 
-                    const visualElements = (a.closest('.g, .xpd, .F9iR2e, .Ww4FFb') || a).querySelectorAll('cite, .VuuXrf');
-                    for (let el of visualElements) {
-                        const domainOnly = (el.innerText || "").split(/[›>]/)[0].toLowerCase().trim().replace(/ /g, '').split('.')[0];
-                        if (domainOnly.length <= inputNoExt.length * 3 && Matcher.isFlexibleMatch(domainOnly, inputNoExt)) {
-                            foundLink = a;
-                            break;
-                        }
+                    // Tái sử dụng logic Visual Domain cho chế độ Fuzzy
+                    const visualMain = visualDomain.split('.')[0];
+                    if (visualMain && visualMain.length <= inputNoExt.length * 3 && Matcher.isFlexibleMatch(visualMain, inputNoExt)) {
+                        foundLink = a;
+                        break;
                     }
                 }
             }
